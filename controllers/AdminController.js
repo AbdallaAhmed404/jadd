@@ -179,6 +179,40 @@ const deleteCategory = async (req, res) => {
     } catch (err) { res.status(500).json({ message: "Failed to delete" }); }
 };
 
+const addSubCategory = async (req, res) => {
+    try {
+        const { categoryId, subCategoryName } = req.body;
+        
+        const category = await Category.findByIdAndUpdate(
+            categoryId,
+            { $addToSet: { subCategories: subCategoryName } }, // $addToSet يضيف العنصر إذا لم يكن موجوداً
+            { new: true }
+        );
+
+        if (!category) return res.status(404).json({ message: "Category not found" });
+        res.json({ message: "Sub-category added", category });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+const removeSubCategory = async (req, res) => {
+    try {
+        const { categoryId, subCategoryName } = req.body;
+
+        const category = await Category.findByIdAndUpdate(
+            categoryId,
+            { $pull: { subCategories: subCategoryName } }, // $pull يحذف العنصر من المصفوفة
+            { new: true }
+        );
+
+        if (!category) return res.status(404).json({ message: "Category not found" });
+        res.json({ message: "Sub-category removed", category });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 const getReports = async (req, res) => {
   try {
     const reports = await Report.find()
@@ -213,5 +247,7 @@ module.exports = {
     addCategory,
     deleteCategory,
     getReports, 
-    deleteReport
+    deleteReport,
+    addSubCategory,
+    removeSubCategory
 };

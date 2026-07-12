@@ -484,7 +484,7 @@ const getUserConversations = async (req, res) => {
     try {
         const userId = req.user.id; // مفترض أنك تستخدم Middleware لاستخراج المستخدم
         const conversations = await Conversation.find({ participants: userId })
-            .populate('participants', 'fullName');
+            .populate('participants', 'fullName profileImage');
 
         const conversationsWithUnread = await Promise.all(conversations.map(async (conv) => {
             const unreadCount = await Message.countDocuments({
