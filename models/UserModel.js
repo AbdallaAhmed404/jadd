@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema(
     // حقول التحقق الجديدة
     otp: { type: String },
     isVerified: { type: Boolean, default: false },
+    views: { type: Number, default: 0 },
     verificationStatus: {
       type: String,
       enum: ['unverified', 'pending', 'verified'],

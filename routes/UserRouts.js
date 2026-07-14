@@ -4,8 +4,15 @@ const authorized = require('../middlewares/Authorized')
 const { toggleFavorite, getFavorites, isVerifiedSeller, getUploadUrl, register, verifyOtp
     , login, getUserProfile, addProduct, AllProduct, makeOrder, getUserOrders, getProductById,
     getProductsByCategory, accessChat, sendMessage, getMessages, getUserConversations, getUnreadCount,
-    submitIdentity,getAllCategories,updateProfile,getSellerProfile,addReview, getReviews,addReport } = require('../controllers/UserController')
+    submitIdentity,getAllCategories,updateProfile,getSellerProfile,addReview, getReviews,addReport,getSellerDashboardData,
+    toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus } = require('../controllers/UserController')
 
+UserRouter.patch('/update-status/:offerId', authorized, updateOfferStatus);
+UserRouter.post('/create', authorized, createOffer);
+UserRouter.get('/my-offers', authorized, getSellerOffers);
+UserRouter.patch('/updatestatus/:productId', authorized, toggleProductStatus);
+UserRouter.delete('/deleteproduct/:productId', authorized, deleteProduct);
+UserRouter.get('/seller-dashboard-data', authorized, getSellerDashboardData);
 UserRouter.get('/unread-count', authorized, getUnreadCount);
 UserRouter.post('/access', authorized, accessChat);
 UserRouter.post('/message', authorized, sendMessage);

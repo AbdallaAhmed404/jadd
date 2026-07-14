@@ -18,6 +18,7 @@ const Identity = require('../models/IdentityModel');
 const jwt = require('jsonwebtoken');
 const Category = require('../models/CategoryModel');
 const Report = require('../models/ReportModel');
+const Offer = require('../models/OfferModel');
 
 const R2 = new S3Client({
     region: "auto",
@@ -350,15 +351,27 @@ const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
     const product = await ProductModel.findById(id).populate('userId', 'fullName'); // تأكد من اسم الحقل في موديل User
-    
     if (!product) return res.status(404).json({ message: "Product not found" });
+
+    const token = req.headers.authorization?.split(" ")[1];
+
+    let currentUserId = null;
+    if (token) {
+        const decoded = jwt.verify(token, 'key');
+        currentUserId = decoded.id;
+    }
+
+    let myOffers = [];
+    if (currentUserId) {
+        myOffers = await Offer.find({ productId: id, buyerId: currentUserId });
+    }
 
     const relatedProducts = await ProductModel.find({ 
       userId: product.userId._id, 
       _id: { $ne: id } 
     }).limit(4);
 
-    res.json({ product, relatedProducts });
+    res.json({ product, relatedProducts, myOffers });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
@@ -399,9 +412,15 @@ const toggleFavorite = async (req, res) => {
     if (isFavorite) {
       // إزالة إذا كان موجوداً
       user.favorites = user.favorites.filter(id => id.toString() !== productId);
+      // 2. إنقاص العداد في موديل المنتج
+      await ProductModel.findByIdAndUpdate(productId, { $inc: { favoritesCount: -1 } });
+
     } else {
       // إضافة إذا لم يكن موجوداً
       user.favorites.push(productId);
+      // 2. زيادة العداد في موديل المنتج
+      await ProductModel.findByIdAndUpdate(productId, { $inc: { favoritesCount: 1 } });
+
     }
 
     await user.save();
@@ -565,7 +584,11 @@ const getAllCategories = async (req, res) => {
     const { userId } = req.params; // الحصول على الـ ID من الرابط
 
     // 1. جلب بيانات المستخدم
-    const user = await User.findById(userId).select('-password'); // استبعاد الباسورد للأمان
+    const user = await User.findByIdAndUpdate(
+      userId, 
+      { $inc: { views: 1 } }, 
+      { new: true }
+    ).select('-password');
 
     if (!user) {
       return res.status(404).json({ message: "Seller not found" });
@@ -635,6 +658,118 @@ const addReport = async (req, res) => {
   }
 };
 
+
+const getSellerDashboardData = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // جلب بيانات البائع (تشمل الـ views والـ reviews)
+    const user = await User.findById(userId).select('fullName views');
+
+    // جلب جميع منتجات هذا البائع
+    const products = await ProductModel.find({ userId: userId });
+
+    // إرسال الداتا للفرونت إند ليقوم هو بالتقسيم والفلترة
+    res.status(200).json({
+      seller: {
+        name: user.fullName,
+        views: user.views || 0
+      },
+      products: products
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
+const toggleProductStatus = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const product = await ProductModel.findById(productId);
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    // المنطق: إذا كان Sold يرجع Available، غير ذلك يتحول إلى Sold
+    const newStatus = product.status === 'Sold' ? 'Available' : 'Sold';
+    
+    product.status = newStatus;
+    await product.save();
+
+    res.status(200).json({ message: "Status updated", status: product.status });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating status", error: error.message });
+  }
+};
+
+// دالة حذف المنتج
+const deleteProduct = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const product = await ProductModel.findByIdAndDelete(productId);
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    res.status(200).json({ message: "Product deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting product", error: error.message });
+  }
+};
+
+const createOffer = async (req, res) => {
+    try {
+        const { productId, sellerId, offerPrice } = req.body;
+        const buyerId = req.user.id; // من الميدل وير
+
+        const newOffer = new Offer({ productId, buyerId, sellerId, offerPrice });
+        await newOffer.save();
+        
+        res.status(201).json({ message: "Offer submitted successfully", offer: newOffer });
+    } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+    }
+};
+
+const getSellerOffers = async (req, res) => {
+    try {
+        const sellerId = req.user.id;
+        const offers = await Offer.find({ sellerId }).populate('productId buyerId', 'title fullName');
+        res.status(200).json(offers);
+    } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+    }
+};
+
+const updateOfferStatus = async (req, res) => {
+    try {
+        const { offerId } = req.params;
+        const { status } = req.body; // يجب أن تكون 'accepted' أو 'rejected'
+
+        // التحقق من أن الحالة المدخلة صحيحة
+        if (!['accepted', 'rejected'].includes(status)) {
+            return res.status(400).json({ message: "Invalid status value" });
+        }
+
+        const offer = await Offer.findByIdAndUpdate(
+            offerId,
+            { status },
+            { new: true }
+        );
+
+        if (!offer) {
+            return res.status(404).json({ message: "Offer not found" });
+        }
+
+        res.status(200).json({ message: `Offer ${status} successfully`, offer });
+    } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+    }
+};
+
 module.exports = {
   getUploadUrl,
   addProduct,
@@ -662,5 +797,10 @@ module.exports = {
   addReview, 
   getReviews,
   addReport,
-  
+  getSellerDashboardData,
+  toggleProductStatus,
+  deleteProduct,
+  createOffer,
+  getSellerOffers,
+  updateOfferStatus
 };
