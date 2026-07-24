@@ -216,11 +216,11 @@ const login = async (req, res) => {
 
 const addProduct = async (req, res) => {
     try {
-        const { title, description, price, category, condition, images, video } = req.body;
+        const { title, description, price, category,subCategory, condition, images, video } = req.body;
         const userId = req.user.id; // استخراج الـ ID من الميدل وير
 
         const newProduct = await ProductModel.create({
-            userId, title, description, price, category, condition, images, video
+            userId, title, description, price, category,subCategory, condition, images, video
         });
 
         res.status(201).json({ message: "Product listed successfully", product: newProduct });
