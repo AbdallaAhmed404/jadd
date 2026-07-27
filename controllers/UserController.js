@@ -219,6 +219,11 @@ const addProduct = async (req, res) => {
         const { title, description, price, category,subCategory, condition, images, video } = req.body;
         const userId = req.user.id; // استخراج الـ ID من الميدل وير
 
+        const user = await UserModel.findById(userId);
+        if (!user || user.verificationStatus !== 'verified') {
+            return res.status(403).json({ message: "You must be verified to list a product" });
+        }
+
         const newProduct = await ProductModel.create({
             userId, title, description, price, category,subCategory, condition, images, video
         });
