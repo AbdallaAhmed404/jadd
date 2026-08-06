@@ -32,7 +32,7 @@ UserRouter.post('/login', login);
 UserRouter.get("/product/:id", getProductById);
 UserRouter.get('/allproduct', AllProduct);
 UserRouter.post('/Order', makeOrder);
-UserRouter.get('/category/:category', authorized, getProductsByCategory);
+UserRouter.get('/category/:category', getProductsByCategory);
 UserRouter.post('/submit', submitIdentity);
 UserRouter.get('/categories', getAllCategories);
 UserRouter.get('/sellerProfile/:userId', getSellerProfile);

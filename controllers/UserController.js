@@ -407,7 +407,6 @@ const getProductById = async (req, res) => {
 const getProductsByCategory = async (req, res, next) => {
   try {
     const { category } = req.params;
-    const userId = req.user.id; // الـ ID القادم من الميدل وير
 
     const matchingCategory = await Category.findOne({
       "name.en": { $regex: new RegExp(`^${category}$`, 'i') }
@@ -417,16 +416,7 @@ const getProductsByCategory = async (req, res, next) => {
       return res.status(404).json({ message: "Category not found" });
     }
 
-    // 1. جلب إحداثيات المستخدم إن وجدت
-    let userLocation = null;
-    if (userId) {
-      const user = await User.findById(userId);
-      if (user && user.location) {
-        userLocation = user.location; // { latitude, longitude }
-      }
-    }
-
-    // 2. جلب المنتجات وتحويلها لـ plain objects باستخدام lean()
+    // جلب المنتجات ومعها إحداثياتها (product.location) بدون حساب مسافات في السيرفر
     let products = await ProductModel.find({ category: matchingCategory._id })
       .populate('category')
       .lean();
@@ -434,27 +424,7 @@ const getProductsByCategory = async (req, res, next) => {
     if (products.length === 0)
       return res.status(404).json({ message: "No products found in this category" });
 
-    // 3. حساب المسافة لكل منتج إذا توفرت الإحداثيات للطرفين
-    products = products.map(product => {
-      let distance = null;
-      if (
-        userLocation && 
-        userLocation.latitude != null && 
-        userLocation.longitude != null &&
-        product.location && 
-        product.location.latitude != null && 
-        product.location.longitude != null
-      ) {
-        distance = calculateDistance(
-          userLocation.latitude,
-          userLocation.longitude,
-          product.location.latitude,
-          product.location.longitude
-        );
-      }
-      return { ...product, distance };
-    });
-
+    // إرسال المنتجات كما هي للفرونت إند، وهو سيقوم بحساب المسافة محلياً
     res.status(200).json(products);
   } catch (err) {
     console.error("Error fetching products by category:", err);
