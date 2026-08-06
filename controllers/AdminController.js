@@ -87,9 +87,10 @@ const deleteUser = async (req, res) => {
 
 const getAllProducts = async (req, res) => {
     try {
-        // جلب المنتجات مع بيانات المستخدم الذي أضافها
+        // جلب المنتجات مع بيانات المستخدم ومع بيانات الكاتيجوري
         const products = await Product.find({})
             .populate('userId', 'fullName email') 
+            .populate('category') // <-- أضف هذه السطر
             .sort({ createdAt: -1 });
         
         res.status(200).json({ success: true, data: products });
@@ -167,9 +168,14 @@ const getAllCategories = async (req, res) => {
 
 const addCategory = async (req, res) => {
     try {
-        const newCategory = await Category.create({ name: req.body.name });
+        // المتوقع في الـ body: { name: { ar: "إلكترونيات", en: "Electronics" } }
+        const { name } = req.body;
+
+        const newCategory = await Category.create({ name });
         res.status(201).json({ success: true, data: newCategory });
-    } catch (err) { res.status(500).json({ message: "Failed to add" }); }
+    } catch (err) { 
+        res.status(500).json({ success: false, message: "Failed to add", error: err.message }); 
+    }
 };
 
 const deleteCategory = async (req, res) => {
@@ -181,16 +187,17 @@ const deleteCategory = async (req, res) => {
 
 const addSubCategory = async (req, res) => {
     try {
-        const { categoryId, subCategoryName } = req.body;
-        
+        const { categoryId, subCategoryName } = req.body; 
+        // المتوقع في subCategoryName: { ar: "هواتف", en: "Mobiles" }
+
         const category = await Category.findByIdAndUpdate(
             categoryId,
-            { $addToSet: { subCategories: subCategoryName } }, // $addToSet يضيف العنصر إذا لم يكن موجوداً
+            { $push: { subCategories: subCategoryName } }, 
             { new: true }
         );
 
         if (!category) return res.status(404).json({ message: "Category not found" });
-        res.json({ message: "Sub-category added", category });
+        res.json({ message: "Sub-category added successfully", category });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

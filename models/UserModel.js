@@ -14,7 +14,11 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     bio: { type: String, default: "" },
-    location: { type: String, default: "" },
+    location: {
+      address: { type: String, default: "" }, // اسم المكان أو العنوان المختار من القائمة أو الـ GPS
+      latitude: { type: Number, default: null }, // خط العرض
+      longitude: { type: Number, default: null }  // خط الطول
+    },
     profileImage: { type: String, default: "" },
     // حقول التحقق الجديدة
     otp: { type: String },

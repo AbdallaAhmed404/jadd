@@ -5,7 +5,7 @@ const { toggleFavorite, getFavorites, isVerifiedSeller, getUploadUrl, register, 
     , login, getUserProfile, addProduct, AllProduct, makeOrder, getUserOrders, getProductById,
     getProductsByCategory, accessChat, sendMessage, getMessages, getUserConversations, getUnreadCount,
     submitIdentity,getAllCategories,updateProfile,getSellerProfile,addReview, getReviews,addReport,getSellerDashboardData,
-    toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus } = require('../controllers/UserController')
+    toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus,updateUserLocation } = require('../controllers/UserController')
 
 UserRouter.patch('/update-status/:offerId', authorized, updateOfferStatus);
 UserRouter.post('/create', authorized, createOffer);
@@ -32,13 +32,14 @@ UserRouter.post('/login', login);
 UserRouter.get("/product/:id", getProductById);
 UserRouter.get('/allproduct', AllProduct);
 UserRouter.post('/Order', makeOrder);
-UserRouter.get('/category/:category', getProductsByCategory);
+UserRouter.get('/category/:category', authorized, getProductsByCategory);
 UserRouter.post('/submit', submitIdentity);
 UserRouter.get('/categories', getAllCategories);
 UserRouter.get('/sellerProfile/:userId', getSellerProfile);
 UserRouter.post('/review/:userId', authorized, addReview);
 UserRouter.get('/review/:userId', getReviews);
 UserRouter.post('/report/:id', authorized, addReport);
+UserRouter.put('/update-location', authorized, updateUserLocation);
 
 module.exports = UserRouter;
 

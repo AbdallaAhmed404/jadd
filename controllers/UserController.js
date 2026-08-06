@@ -21,36 +21,36 @@ const Report = require('../models/ReportModel');
 const Offer = require('../models/OfferModel');
 
 const R2 = new S3Client({
-    region: "auto",
-    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-        accessKeyId: process.env.R2_ACCESS_KEY_ID,
-        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-    },
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
 });
 
 
 // 1. توليد رابط رفع للفرونت إند
 const getUploadUrl = async (req, res) => {
-    try {
-        const { folder, filename, contentType } = req.body;
-        if (!folder || !filename || !contentType) {
-            return res.status(400).json({ message: "Missing required fields" });
-        }
-        const fileKey = `${folder}/${Date.now()}-${filename}`;
-        const command = new PutObjectCommand({
-            Bucket: process.env.R2_BUCKET_NAME,
-            Key: fileKey,
-            ContentType: contentType,
-        });
-
-        const signedUrl = await getSignedUrl(R2, command, { expiresIn: 3600 });
-        const publicUrl = `${process.env.R2_PUBLIC_DOMAIN}/${fileKey}`;
-
-        res.status(200).json({ signedUrl, publicUrl });
-    } catch (error) {
-        res.status(500).json({ message: "Signed URL generation failed" });
+  try {
+    const { folder, filename, contentType } = req.body;
+    if (!folder || !filename || !contentType) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
+    const fileKey = `${folder}/${Date.now()}-${filename}`;
+    const command = new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: fileKey,
+      ContentType: contentType,
+    });
+
+    const signedUrl = await getSignedUrl(R2, command, { expiresIn: 3600 });
+    const publicUrl = `${process.env.R2_PUBLIC_DOMAIN}/${fileKey}`;
+
+    res.status(200).json({ signedUrl, publicUrl });
+  } catch (error) {
+    res.status(500).json({ message: "Signed URL generation failed" });
+  }
 };
 
 
@@ -81,10 +81,10 @@ const register = async (req, res) => {
 
     // 4. إرسال الإيميل
     await transporter.sendMail({
-  from: '"JADD Support" <jadd.webdev@gmail.com>',
-  to: email,
-  subject: "تفعيل حسابك في JADD",
-  html: `<!DOCTYPE html>
+      from: '"JADD Support" <jadd.webdev@gmail.com>',
+      to: email,
+      subject: "تفعيل حسابك في JADD",
+      html: `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -130,7 +130,7 @@ const register = async (req, res) => {
   </div>
 </body>
 </html>`
-});
+    });
 
     res.status(201).json({ message: "تم إرسال كود التحقق إلى إيميلك" });
 
@@ -174,9 +174,9 @@ const login = async (req, res) => {
 
     // 2. Check if the account is verified
     if (!user.isVerified) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         message: "Account not verified. Please check your email for the verification code.",
-        needsVerification: true 
+        needsVerification: true
       });
     }
 
@@ -195,49 +195,64 @@ const login = async (req, res) => {
       user
     });
   } catch (error) {
-    res.status(500).json({ 
-      message: "Server error, please try again later.", 
-      error: error.message 
+    res.status(500).json({
+      message: "Server error, please try again later.",
+      error: error.message
     });
   }
 };
 
- const isVerifiedSeller = async (req, res) => {
+const isVerifiedSeller = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("verificationStatus");
     if (!user) return res.status(404).json({ message: "User not found" });
-    
+
     // نرسل الحالة كاملة للفرونت
-    res.json({ status: user.verificationStatus }); 
+    res.json({ status: user.verificationStatus });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }
 };
 
 const addProduct = async (req, res) => {
-    try {
-        const { title, description, price, category,subCategory, condition, images, video } = req.body;
-        const userId = req.user.id; // استخراج الـ ID من الميدل وير
+  try {
+    const { title, description, price, category, condition, images, video, location } = req.body;
+    const userId = req.user.id; 
 
-        const user = await UserModel.findById(userId);
-        if (!user || user.verificationStatus !== 'verified') {
-            return res.status(403).json({ message: "You must be verified to list a product" });
-        }
-
-        const newProduct = await ProductModel.create({
-            userId, title, description, price, category,subCategory, condition, images, video
-        });
-
-        res.status(201).json({ message: "Product listed successfully", product: newProduct });
-    } catch (error) {
-        res.status(500).json({ message: "Server error" });
+    const user = await User.findById(userId);
+    if (!user || user.verificationStatus !== 'verified') {
+      return res.status(403).json({ message: "You must be verified to list a product" });
     }
+
+    if (!location || !location.latitude || !location.longitude) {
+      return res.status(400).json({ message: "Product location is required" });
+    }
+
+    const newProduct = await ProductModel.create({
+      userId, 
+      title, 
+      description, 
+      price, 
+      category, 
+      condition, 
+      images, 
+      video,
+      location
+    });
+
+    const populatedProduct = await ProductModel.findById(newProduct._id).populate('category');
+
+    res.status(201).json({ message: "Product listed successfully", product: populatedProduct });
+  } catch (error) {
+    console.error("Error adding product:", error);
+    res.status(500).json({ message: "Server error" });
+  }
 };
 
 // 🧱 عرض كل المنتجات
 const AllProduct = async (req, res, next) => {
   try {
-    const products = await ProductModel.find({});
+    const products = await ProductModel.find({}).populate('category');
     res.json(products);
   } catch (err) {
     console.error("Error retrieving products:", err);
@@ -355,25 +370,32 @@ const getUserOrders = async (req, res) => {
 const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await ProductModel.findById(id).populate('userId', 'fullName'); // تأكد من اسم الحقل في موديل User
+
+    // << زود العداد بـ 1 وهات المنتج في نفس الخطوة >>
+    const product = await ProductModel.findByIdAndUpdate(
+      id,
+      { $inc: { viewsCount: 1 } },
+      { new: true }
+    ).populate('userId', 'fullName');
+
     if (!product) return res.status(404).json({ message: "Product not found" });
 
     const token = req.headers.authorization?.split(" ")[1];
 
     let currentUserId = null;
     if (token) {
-        const decoded = jwt.verify(token, 'key');
-        currentUserId = decoded.id;
+      const decoded = jwt.verify(token, 'key');
+      currentUserId = decoded.id;
     }
 
     let myOffers = [];
     if (currentUserId) {
-        myOffers = await Offer.find({ productId: id, buyerId: currentUserId });
+      myOffers = await Offer.find({ productId: id, buyerId: currentUserId });
     }
 
-    const relatedProducts = await ProductModel.find({ 
-      userId: product.userId._id, 
-      _id: { $ne: id } 
+    const relatedProducts = await ProductModel.find({
+      userId: product.userId._id,
+      _id: { $ne: id }
     }).limit(4);
 
     res.json({ product, relatedProducts, myOffers });
@@ -384,16 +406,54 @@ const getProductById = async (req, res) => {
 
 const getProductsByCategory = async (req, res, next) => {
   try {
-    const { category } = req.params; // القيمة القادمة مثلاً: "electronics"
-    
-    // استخدام $regex مع الخيار 'i' لجعل البحث غير حساس لحالة الأحرف
-    // هذا سيجعل البحث يطابق "Electronics", "electronics", "ELECTRONICS"
-    const products = await ProductModel.find({ 
-      category: { $regex: new RegExp(`^${category}$`, 'i') } 
+    const { category } = req.params;
+    const userId = req.user.id; // الـ ID القادم من الميدل وير
+
+    const matchingCategory = await Category.findOne({
+      "name.en": { $regex: new RegExp(`^${category}$`, 'i') }
     });
+
+    if (!matchingCategory) {
+      return res.status(404).json({ message: "Category not found" });
+    }
+
+    // 1. جلب إحداثيات المستخدم إن وجدت
+    let userLocation = null;
+    if (userId) {
+      const user = await User.findById(userId);
+      if (user && user.location) {
+        userLocation = user.location; // { latitude, longitude }
+      }
+    }
+
+    // 2. جلب المنتجات وتحويلها لـ plain objects باستخدام lean()
+    let products = await ProductModel.find({ category: matchingCategory._id })
+      .populate('category')
+      .lean();
 
     if (products.length === 0)
       return res.status(404).json({ message: "No products found in this category" });
+
+    // 3. حساب المسافة لكل منتج إذا توفرت الإحداثيات للطرفين
+    products = products.map(product => {
+      let distance = null;
+      if (
+        userLocation && 
+        userLocation.latitude != null && 
+        userLocation.longitude != null &&
+        product.location && 
+        product.location.latitude != null && 
+        product.location.longitude != null
+      ) {
+        distance = calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          product.location.latitude,
+          product.location.longitude
+        );
+      }
+      return { ...product, distance };
+    });
 
     res.status(200).json(products);
   } catch (err) {
@@ -405,13 +465,26 @@ const getProductsByCategory = async (req, res, next) => {
   }
 };
 
+// دالة حساب المسافة
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Number((R * c).toFixed(1));
+}
+
 const toggleFavorite = async (req, res) => {
   try {
     const { productId } = req.body;
     const userId = req.user.id; // مفترض أنك تستخدم middleware للتوثيق
 
     const user = await User.findById(userId);
-    
+
     const isFavorite = user.favorites.includes(productId);
 
     if (isFavorite) {
@@ -440,7 +513,7 @@ const getFavorites = async (req, res) => {
   try {
     const userId = req.user.id;
     const user = await User.findById(userId).populate('favorites'); // عرض بيانات المنتج كاملة
-    
+
     res.status(200).json(user.favorites);
   } catch (err) {
     res.status(500).json({ message: "Error fetching favorites" });
@@ -505,93 +578,93 @@ const getMessages = async (req, res) => {
 
 
 const getUserConversations = async (req, res) => {
-    try {
-        const userId = req.user.id; // مفترض أنك تستخدم Middleware لاستخراج المستخدم
-        const conversations = await Conversation.find({ participants: userId })
-            .populate('participants', 'fullName profileImage').populate('productId', 'title images');;
+  try {
+    const userId = req.user.id; // مفترض أنك تستخدم Middleware لاستخراج المستخدم
+    const conversations = await Conversation.find({ participants: userId })
+      .populate('participants', 'fullName profileImage').populate('productId', 'title images');;
 
-        const conversationsWithUnread = await Promise.all(conversations.map(async (conv) => {
-            const unreadCount = await Message.countDocuments({
-                conversationId: conv._id,
-                isRead: false,
-                senderId: { $ne: userId } // الرسائل التي لم يرسلها المستخدم الحالي
-            });
-            return { ...conv.toObject(), unreadCount };
-        }));
+    const conversationsWithUnread = await Promise.all(conversations.map(async (conv) => {
+      const unreadCount = await Message.countDocuments({
+        conversationId: conv._id,
+        isRead: false,
+        senderId: { $ne: userId } // الرسائل التي لم يرسلها المستخدم الحالي
+      });
+      return { ...conv.toObject(), unreadCount };
+    }));
 
-        res.json(conversationsWithUnread);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    res.json(conversationsWithUnread);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 // 2. جلب إجمالي عدد الرسائل غير المقروءة للمستخدم (للـ Navbar)
 const getUnreadCount = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        
-        // نجيب كل المحادثات اللي مشترك فيها
-        const userConversations = await Conversation.find({ participants: userId });
-        const conversationIds = userConversations.map(c => c._id);
+  try {
+    const userId = req.user.id;
 
-        // نحسب مجموع الرسائل غير المقروءة في كل هذه المحادثات
-        const totalUnread = await Message.countDocuments({
-            conversationId: { $in: conversationIds },
-            isRead: false,
-            senderId: { $ne: userId }
-        });
+    // نجيب كل المحادثات اللي مشترك فيها
+    const userConversations = await Conversation.find({ participants: userId });
+    const conversationIds = userConversations.map(c => c._id);
 
-        res.json({ totalUnread });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    // نحسب مجموع الرسائل غير المقروءة في كل هذه المحادثات
+    const totalUnread = await Message.countDocuments({
+      conversationId: { $in: conversationIds },
+      isRead: false,
+      senderId: { $ne: userId }
+    });
+
+    res.json({ totalUnread });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 const submitIdentity = async (req, res) => {
-    try {
-        // 1. فك تشفير التوكن
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ message: "No token provided" });
+  try {
+    // 1. فك تشفير التوكن
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ message: "No token provided" });
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'key');
-        const userId = decoded.id;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'key');
+    const userId = decoded.id;
 
-        const { idImages } = req.body;
+    const { idImages } = req.body;
 
-        // 2. حفظ طلب الهوية
-        const newIdentity = new Identity({
-            userId,
-            idImages
-        });
-        await newIdentity.save();
+    // 2. حفظ طلب الهوية
+    const newIdentity = new Identity({
+      userId,
+      idImages
+    });
+    await newIdentity.save();
 
-        // 3. تحديث حالة المستخدم إلى 'pending'
-        await User.findByIdAndUpdate(userId, { 
-            verificationStatus: 'pending' 
-        });
+    // 3. تحديث حالة المستخدم إلى 'pending'
+    await User.findByIdAndUpdate(userId, {
+      verificationStatus: 'pending'
+    });
 
-        res.status(201).json({ message: "Identity submitted and status updated to pending" });
-    } catch (error) {
-        console.error("Submission error:", error);
-        res.status(500).json({ message: "Submission failed" });
-    }
+    res.status(201).json({ message: "Identity submitted and status updated to pending" });
+  } catch (error) {
+    console.error("Submission error:", error);
+    res.status(500).json({ message: "Submission failed" });
+  }
 };
 
 const getAllCategories = async (req, res) => {
-    try {
-        const categories = await Category.find({}).sort({ createdAt: -1 });
-        res.status(200).json({ success: true, data: categories });
-    } catch (err) { res.status(500).json({ message: "Failed" }); }
+  try {
+    const categories = await Category.find({}).sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: categories });
+  } catch (err) { res.status(500).json({ message: "Failed" }); }
 };
 
- const getSellerProfile = async (req, res) => {
+const getSellerProfile = async (req, res) => {
   try {
     const { userId } = req.params; // الحصول على الـ ID من الرابط
 
     // 1. جلب بيانات المستخدم
     const user = await User.findByIdAndUpdate(
-      userId, 
-      { $inc: { views: 1 } }, 
+      userId,
+      { $inc: { views: 1 } },
       { new: true }
     ).select('-password');
 
@@ -635,7 +708,7 @@ const getReviews = async (req, res) => {
   try {
     const { userId } = req.params;
     const user = await User.findById(userId).populate('reviews.reviewer', 'fullName profileImage');
-    
+
     if (!user) return res.status(404).json({ message: "User not found" });
 
     res.status(200).json(user.reviews);
@@ -699,7 +772,7 @@ const toggleProductStatus = async (req, res) => {
 
     // المنطق: إذا كان Sold يرجع Available، غير ذلك يتحول إلى Sold
     const newStatus = product.status === 'Sold' ? 'Available' : 'Sold';
-    
+
     product.status = newStatus;
     await product.save();
 
@@ -726,52 +799,85 @@ const deleteProduct = async (req, res) => {
 };
 
 const createOffer = async (req, res) => {
-    try {
-        const { productId, sellerId, offerPrice } = req.body;
-        const buyerId = req.user.id; // من الميدل وير
+  try {
+    const { productId, sellerId, offerPrice } = req.body;
+    const buyerId = req.user.id; // من الميدل وير
 
-        const newOffer = new Offer({ productId, buyerId, sellerId, offerPrice });
-        await newOffer.save();
-        
-        res.status(201).json({ message: "Offer submitted successfully", offer: newOffer });
-    } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
-    }
+    const newOffer = new Offer({ productId, buyerId, sellerId, offerPrice });
+    await newOffer.save();
+
+    res.status(201).json({ message: "Offer submitted successfully", offer: newOffer });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 };
 
 const getSellerOffers = async (req, res) => {
-    try {
-        const sellerId = req.user.id;
-        const offers = await Offer.find({ sellerId }).populate('productId buyerId', 'title fullName');
-        res.status(200).json(offers);
-    } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
-    }
+  try {
+    const sellerId = req.user.id;
+    const offers = await Offer.find({ sellerId }).populate('productId buyerId', 'title fullName');
+    res.status(200).json(offers);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 };
 
 const updateOfferStatus = async (req, res) => {
+  try {
+    const { offerId } = req.params;
+    const { status } = req.body; // يجب أن تكون 'accepted' أو 'rejected'
+
+    // التحقق من أن الحالة المدخلة صحيحة
+    if (!['accepted', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: "Invalid status value" });
+    }
+
+    const offer = await Offer.findByIdAndUpdate(
+      offerId,
+      { status },
+      { new: true }
+    );
+
+    if (!offer) {
+      return res.status(404).json({ message: "Offer not found" });
+    }
+
+    res.status(200).json({ message: `Offer ${status} successfully`, offer });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+const updateUserLocation = async (req, res) => {
     try {
-        const { offerId } = req.params;
-        const { status } = req.body; // يجب أن تكون 'accepted' أو 'rejected'
+        const userId = req.user.id; // يأتي من الـ Middleware الخاص بالـ Authentication
+        const { address, latitude, longitude } = req.body;
 
-        // التحقق من أن الحالة المدخلة صحيحة
-        if (!['accepted', 'rejected'].includes(status)) {
-            return res.status(400).json({ message: "Invalid status value" });
-        }
-
-        const offer = await Offer.findByIdAndUpdate(
-            offerId,
-            { status },
-            { new: true }
+        // التحقق أو استقبال البيانات وإرسالها للموديل
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            {
+                $set: {
+                    "location.address": address || "",
+                    "location.latitude": latitude || null,
+                    "location.longitude": longitude || null
+                }
+            },
+            { new: true } // ليرجع البيانات بعد التحديث
         );
 
-        if (!offer) {
-            return res.status(404).json({ message: "Offer not found" });
+        if (!updatedUser) {
+            return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
         }
 
-        res.status(200).json({ message: `Offer ${status} successfully`, offer });
+        res.status(200).json({
+            success: true,
+            message: "تم تحديث الموقع بنجاح",
+            location: updatedUser.location
+        });
+
     } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -799,7 +905,7 @@ module.exports = {
   getAllCategories,
   updateProfile,
   getSellerProfile,
-  addReview, 
+  addReview,
   getReviews,
   addReport,
   getSellerDashboardData,
@@ -807,5 +913,6 @@ module.exports = {
   deleteProduct,
   createOffer,
   getSellerOffers,
-  updateOfferStatus
+  updateOfferStatus,
+  updateUserLocation
 };
