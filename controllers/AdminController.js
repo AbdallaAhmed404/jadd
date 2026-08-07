@@ -7,6 +7,8 @@ const User = require('../models/UserModel');
 const Identity = require('../models/IdentityModel');
 const Category = require('../models/CategoryModel');
 const Report = require('../models/ReportModel');
+const Offer = require('../models/OfferModel');
+const Conversation = require('../models/ConversationModel');
 
 const adminLogin = async (req, res, next) => {
     const { email, password } = req.body;
@@ -102,18 +104,26 @@ const getAllProducts = async (req, res) => {
 // حذف منتج
 const deleteProduct = async (req, res) => {
     try {
-        const { id } = req.params;
-        const product = await Product.findByIdAndDelete(id);
-
+        const { productId } = req.params;
+        
+        const product = await ProductModel.findById(productId);
         if (!product) {
-            return res.status(404).json({ message: 'Product not found' });
+          return res.status(404).json({ message: "Product not found" });
         }
-
-        res.status(200).json({ message: 'Product deleted successfully' });
-    } catch (err) {
-        console.error("Error deleting product:", err);
-        res.status(500).json({ message: "Failed to delete product" });
-    }
+    
+        // 1. حذف أي محادثات مرتبطة بهذا المنتج
+        await Conversation.deleteMany({ productId: productId });
+    
+        // 2. حذف أي عروض (Offers) مرتبطة بهذا المنتج
+        await Offer.deleteMany({ productId: productId });
+    
+        // 3. حذف المنتج نفسه
+        await ProductModel.findByIdAndDelete(productId);
+    
+        res.status(200).json({ message: "Product and its related conversations and offers deleted successfully" });
+      } catch (error) {
+        res.status(500).json({ message: "Error deleting product", error: error.message });
+      }
 };
 
 // IdentityController.js

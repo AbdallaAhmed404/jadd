@@ -2,10 +2,11 @@ const express = require('express')
 const UserRouter = express.Router()
 const authorized = require('../middlewares/Authorized')
 const { toggleFavorite, getFavorites, isVerifiedSeller, getUploadUrl, register, verifyOtp
-    , login, getUserProfile, addProduct, AllProduct, makeOrder, getUserOrders, getProductById,
+    , login, getUserProfile, addProduct, AllProduct , getProductById,
     getProductsByCategory, accessChat, sendMessage, getMessages, getUserConversations, getUnreadCount,
     submitIdentity,getAllCategories,updateProfile,getSellerProfile,addReview, getReviews,addReport,getSellerDashboardData,
-    toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus,updateUserLocation } = require('../controllers/UserController')
+    toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus,updateUserLocation,getUserNotifications,
+    markAsRead,markAllAsRead } = require('../controllers/UserController')
 
 UserRouter.patch('/update-status/:offerId', authorized, updateOfferStatus);
 UserRouter.post('/create', authorized, createOffer);
@@ -23,7 +24,6 @@ UserRouter.get('/favorites', authorized, getFavorites);
 UserRouter.post('/add-product', authorized, addProduct);
 UserRouter.post('/get-upload-url', getUploadUrl);
 UserRouter.get('/profile-status', authorized, isVerifiedSeller);
-UserRouter.get("/my-orders", authorized, getUserOrders);
 UserRouter.get('/profile', authorized, getUserProfile);
 UserRouter.put('/profile', authorized, updateProfile);
 UserRouter.post('/register', register);
@@ -31,7 +31,6 @@ UserRouter.post('/verifyOtp', verifyOtp);
 UserRouter.post('/login', login);
 UserRouter.get("/product/:id", getProductById);
 UserRouter.get('/allproduct', AllProduct);
-UserRouter.post('/Order', makeOrder);
 UserRouter.get('/category/:category', getProductsByCategory);
 UserRouter.post('/submit', submitIdentity);
 UserRouter.get('/categories', getAllCategories);
@@ -40,6 +39,9 @@ UserRouter.post('/review/:userId', authorized, addReview);
 UserRouter.get('/review/:userId', getReviews);
 UserRouter.post('/report/:id', authorized, addReport);
 UserRouter.put('/update-location', authorized, updateUserLocation);
+UserRouter.get("/notification", authorized, getUserNotifications);
+UserRouter.patch('/notification/read-all', authorized, markAllAsRead);
+UserRouter.patch("/notification/:id", authorized, markAsRead);
 
 module.exports = UserRouter;
 

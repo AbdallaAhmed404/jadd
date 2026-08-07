@@ -1,12 +1,9 @@
 const ProductModel = require("../models/ProductModel");
 const customError = require("../customError");
-const OrderModel = require("../models/OrderModel"); // هننشئه بعدين
-const ContactModel = require("../models/ContactModel");
 const axios = require('axios');
 const User = require('../models/UserModel');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const Coupon = require('../models/Coupon'); // تأكد من المسار الصحيح للملف
 const nodemailer = require('nodemailer');
 const { deleteFileFromR2 } = require('../middlewares/r2Upload');
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
@@ -19,6 +16,7 @@ const jwt = require('jsonwebtoken');
 const Category = require('../models/CategoryModel');
 const Report = require('../models/ReportModel');
 const Offer = require('../models/OfferModel');
+const Notification = require("../models/Notification");
 
 const R2 = new S3Client({
   region: "auto",
@@ -294,78 +292,9 @@ const updateProfile = async (req, res) => {
 
 // 🧾 استقبال الطلب من المستخدم (بدون login)
 
-const makeOrder = async (req, res) => {
-  try {
-    const { userData, items, appliedCouponCode, total, user, isGuest, trafficSource } = req.body;
 
-    // مراجعة الـ items القادمة من الفرونت إند
-    // تأكد أن مصفوفة items تحتوي بالفعل على isPreOrder و depositAmount
-    const formattedItems = items.map(item => ({
-      productId: item._id,
-      name: item.name,
-      photo: item.photo,
-      price: item.price,
-      quantity: item.quantity,
-      colorCode: item.colorCode,
-      isPreOrder: item.isPreOrder || false,     // حفظ الحالة
-      depositAmount: item.depositAmount || 0    // حفظ قيمة العربون
-    }));
 
-    const newOrder = new OrderModel({
-      user: user || null,
-      userData,
-      trafficSource: trafficSource || {},
-      items: formattedItems, // استخدم المصفوفة المهيأة
-      total,
-      appliedCouponCode,
-      isGuest,
-      status: "Pending",
-      paymentStatus: "Unpaid" // الحالة الافتراضية
-    });
 
-    await newOrder.save();
-
-    res.status(201).json({
-      success: true,
-      message: "Order saved successfully!",
-      _id: newOrder._id,
-    });
-  } catch (error) {
-    console.error("❌ Error saving order:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
-  }
-};
-
-const getUserOrders = async (req, res) => {
-  try {
-    const userId = req.user.id; // أو استلامه من req.user إذا كنت تستخدم Middleware للتحقق
-
-    // التأكد من إرسال الـ ID
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "User ID is required"
-      });
-    }
-
-    // البحث عن الطلبات المرتبطة بهذا المستخدم
-    // .sort({ createdAt: -1 }) لجعل الطلبات الأحدث تظهر في الأول
-    const orders = await OrderModel.find({ user: userId }).sort({ createdAt: -1 });
-
-    res.status(200).json({
-      success: true,
-      count: orders.length,
-      orders: orders
-    });
-
-  } catch (error) {
-    console.error("❌ Error fetching user orders:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
-  }
-};
 
 const getProductById = async (req, res) => {
   try {
@@ -514,23 +443,28 @@ const accessChat = async (req, res) => {
 const sendMessage = async (req, res) => {
   const { conversationId, text } = req.body;
   const senderId = req.user.id; // نأخذ الـ ID من الـ Token مباشرة
-  // ... باقي الكود
+
   try {
+    // 1. حفظ الرسالة الجديدة
     const newMessage = await Message.create({
       conversationId,
       senderId,
       text
     });
 
+    // 3. تحديث آخر رسالة في المحادثة
     await Conversation.findByIdAndUpdate(conversationId, {
       lastMessage: text
     });
 
-    // التعديل هنا: إرسال الرسالة للطرف الآخر في الغرفة لحظياً
-    req.io.to(conversationId).emit('receive_message', newMessage);
+    // 4. إرسال الرسالة للطرف الآخر في الغرفة لحظياً
+    if (req.io) {
+      req.io.to(conversationId).emit('receive_message', newMessage);
+    }
 
     res.status(201).json(newMessage);
   } catch (err) {
+    console.error("Error sending message:", err);
     res.status(500).json({ message: "Error sending message" });
   }
 };
@@ -573,18 +507,20 @@ const getUnreadCount = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // نجيب كل المحادثات اللي مشترك فيها
+    // جلب معرفات المحادثات التي يشارك فيها المستخدم
     const userConversations = await Conversation.find({ participants: userId });
     const conversationIds = userConversations.map(c => c._id);
 
-    // نحسب مجموع الرسائل غير المقروءة في كل هذه المحادثات
-    const totalUnread = await Message.countDocuments({
+    // التحقق مما إذا كانت هناك رسالة واحدة على الأقل غير مقروءة
+    const hasUnread = await Message.exists({
       conversationId: { $in: conversationIds },
       isRead: false,
       senderId: { $ne: userId }
     });
 
-    res.json({ totalUnread });
+    // إرجاع قيمة منطقية (true إذا وجد رسائل، أو false إذا لم يوجد)
+    // أو إرجاع كائن يحتوي على hasUnread بـ true/false
+    res.json({ hasUnread: !!hasUnread });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -667,6 +603,21 @@ const addReview = async (req, res) => {
     user.reviews.push({ reviewer: reviewerId, rating, comment });
     await user.save();
 
+    await Notification.create({
+      userId: userId, // صاحب البروفايل هو المستلم
+      title: {
+        ar: "تقييم جديد",
+        en: "New Review"
+      },
+      message: {
+        ar: `لقد تلقيت تقييماً جديداً برمز ${rating} نجوم على ملفك الشخصي.`,
+        en: `You have received a new ${rating}-star review on your profile.`
+      },
+      type: "review", // متوافقة مع الـ Enum في الـ Schema الخاصة بالإشعارات
+      relatedId: user._id, // ربط الإشعار بالمستخدم أو البروفايل
+      isRead: false
+    });
+
     res.status(201).json({ message: "Review added successfully", reviews: user.reviews });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -715,7 +666,7 @@ const getSellerDashboardData = async (req, res) => {
     const user = await User.findById(userId).select('fullName views');
 
     // جلب جميع منتجات هذا البائع
-    const products = await ProductModel.find({ userId: userId });
+    const products = await ProductModel.find({ userId: userId }).populate('buyer');
 
     // إرسال الداتا للفرونت إند ليقوم هو بالتقسيم والفلترة
     res.status(200).json({
@@ -734,19 +685,31 @@ const getSellerDashboardData = async (req, res) => {
 const toggleProductStatus = async (req, res) => {
   try {
     const { productId } = req.params;
+    const { buyerId } = req.body; // استقبال المشتري عند التحويل إلى Sold
     const product = await ProductModel.findById(productId);
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    // المنطق: إذا كان Sold يرجع Available، غير ذلك يتحول إلى Sold
-    const newStatus = product.status === 'Sold' ? 'Available' : 'Sold';
+    // المنطق الجديد:
+    // إذا كان Reserved يتحول إلى Sold ويُربط بالمشتري
+    if (product.status === 'Reserved') {
+      product.status = 'Sold';
+      if (buyerId) {
+        product.buyer = buyerId;
+      }
+    } 
+    // إذا كان Sold يتحول إلى Reserved ويتم إزالة المشتري
+    else if (product.status === 'Sold') {
+      product.status = 'Reserved';
+      product.buyer = null;
+    }
+    // إذا كان Available لا يتغير من هنا (أو يمكنك تركها كما هي حسب رغبتك)
 
-    product.status = newStatus;
     await product.save();
 
-    res.status(200).json({ message: "Status updated", status: product.status });
+    res.status(200).json({ message: "Status updated", status: product.status, product });
   } catch (error) {
     res.status(500).json({ message: "Error updating status", error: error.message });
   }
@@ -756,13 +719,22 @@ const toggleProductStatus = async (req, res) => {
 const deleteProduct = async (req, res) => {
   try {
     const { productId } = req.params;
-    const product = await ProductModel.findByIdAndDelete(productId);
-
+    
+    const product = await ProductModel.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    res.status(200).json({ message: "Product deleted successfully" });
+    // 1. حذف أي محادثات مرتبطة بهذا المنتج
+    await Conversation.deleteMany({ productId: productId });
+
+    // 2. حذف أي عروض (Offers) مرتبطة بهذا المنتج
+    await Offer.deleteMany({ productId: productId });
+
+    // 3. حذف المنتج نفسه
+    await ProductModel.findByIdAndDelete(productId);
+
+    res.status(200).json({ message: "Product and its related conversations and offers deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: "Error deleting product", error: error.message });
   }
@@ -775,6 +747,21 @@ const createOffer = async (req, res) => {
 
     const newOffer = new Offer({ productId, buyerId, sellerId, offerPrice });
     await newOffer.save();
+
+    await Notification.create({
+      userId: sellerId,
+      title: {
+        ar: "عرض سعر جديد",
+        en: "New Price Offer"
+      },
+      message: {
+        ar: `تم تقديم عرض سعر جديد بقيمة ${offerPrice} على منتجك.`,
+        en: `A new price offer of ${offerPrice} has been submitted on your product.`
+      },
+      type: "offer_received",
+      relatedId: newOffer._id,
+      isRead: false
+    });
 
     res.status(201).json({ message: "Offer submitted successfully", offer: newOffer });
   } catch (error) {
@@ -811,6 +798,25 @@ const updateOfferStatus = async (req, res) => {
     if (!offer) {
       return res.status(404).json({ message: "Offer not found" });
     }
+
+    await ProductModel.findByIdAndUpdate(offer.productId, { status: 'Available' });
+    if (status === 'accepted') {
+      await ProductModel.findByIdAndUpdate(offer.productId, { status: 'Reserved' });
+      await Notification.create({
+        userId: offer.buyerId, // المشتري هو صاحب الإشعار
+        title: {
+          ar: "تم قبول عرض السعر",
+          en: "Offer Accepted"
+        },
+        message: {
+          ar: `لقد وافق البائع على عرض السعر الخاص بك بقيمة ${offer.offerPrice}.`,
+          en: `The seller has accepted your price offer of ${offer.offerPrice}.`
+        },
+        type: "offer_accepted", // متوافقة مع الـ Enum في الـ Schema
+        relatedId: offer._id, // ربط الإشعار بالعرض
+        isRead: false
+      });
+      }
 
     res.status(200).json({ message: `Offer ${status} successfully`, offer });
   } catch (error) {
@@ -851,18 +857,73 @@ const updateUserLocation = async (req, res) => {
     }
 };
 
+const getUserNotifications = async (req, res) => {
+  try {
+    const userId = req.user.id; // نأخذ الـ ID من الـ Token مباشرة
+    
+    const notifications = await Notification.find({ userId, isRead: false })
+      .sort({ createdAt: -1 }) // الأحدث أولاً
+      .limit(20); // جلب آخر 20 إشعاراً غير مقروء
+
+    res.status(200).json(notifications);
+  } catch (err) {
+    console.error("Error fetching notifications:", err);
+    res.status(500).json({ message: "Error fetching notifications" });
+  }
+};
+
+// 2. تحديث إشعار معين لصبح مقروء (isRead: true)
+const markAsRead = async (req, res) => {
+  try {
+    const { id } = req.params; // معرف الإشعار
+
+    const updatedNotification = await Notification.findByIdAndUpdate(
+      id,
+      { isRead: true },
+      { new: true } // ليعيد البيانات بعد التحديث
+    );
+
+    if (!updatedNotification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    res.status(200).json({ 
+      message: "Notification marked as read", 
+      notification: updatedNotification 
+    });
+  } catch (err) {
+    console.error("Error updating notification:", err);
+    res.status(500).json({ message: "Error updating notification" });
+  }
+};
+
+// Controller: قراءة كل إشعارات المستخدم
+const markAllAsRead = async (req, res) => {
+  try {
+    const userId = req.user.id; // استخراج معرف المستخدم من التوكن
+
+    await Notification.updateMany(
+      { userId: userId, isRead: false }, // استخدام userId المطابق للـ Schema وتحديث غير المقروءة فقط
+      { $set: { isRead: true } }
+    );
+
+    res.status(200).json({ message: "All notifications marked as read" });
+  } catch (err) {
+    console.error("Error marking all notifications as read:", err);
+    res.status(500).json({ message: "Error updating notifications" });
+  }
+};
+
 module.exports = {
   getUploadUrl,
   addProduct,
   AllProduct,
-  makeOrder,
   getProductById,
   getProductsByCategory,
   register,
   verifyOtp,
   login,
   getUserProfile,
-  getUserOrders,
   isVerifiedSeller,
   toggleFavorite,
   getFavorites,
@@ -884,5 +945,8 @@ module.exports = {
   createOffer,
   getSellerOffers,
   updateOfferStatus,
-  updateUserLocation
+  updateUserLocation,
+  getUserNotifications,
+  markAsRead,
+  markAllAsRead
 };

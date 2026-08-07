@@ -14,6 +14,7 @@ const productSchema = new mongoose.Schema({
         enum: ['Available', 'Reserved', 'Sold'], 
         default: 'Available' 
     },
+    buyer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     images: [{ type: String }], // مصفوفة لـ 7 صور
     video: { type: String },    // فيديو واحد
     location: {
