@@ -24,9 +24,10 @@ const notificationSchema = new mongoose.Schema({
   // نوع الإشعار لتحديد الشكل أو إعادة التوجيه
   type: {
     type: String,
-    enum: ["message", "offer_received", "offer_accepted", "review"],
+    enum: [ "offer_received", "offer_accepted", "offer_rejected", "review"],
     required: true
   },
+
   
   // معرف العنصر المرتبط
   relatedId: {

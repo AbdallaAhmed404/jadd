@@ -222,19 +222,20 @@ const addProduct = async (req, res) => {
       return res.status(403).json({ message: "You must be verified to list a product" });
     }
 
+    // الشرط الوحيد الإجباري الآن هو الموقع الجغرافي
     if (!location || !location.latitude || !location.longitude) {
       return res.status(400).json({ message: "Product location is required" });
     }
 
     const newProduct = await ProductModel.create({
       userId, 
-      title, 
-      description, 
-      price, 
-      category, 
-      condition, 
-      images, 
-      video,
+      title: title || "", 
+      description: description || "", 
+      price: price || 0, 
+      category: category || null, 
+      condition: condition || "New", 
+      images: images || [], 
+      video: video || "",
       location
     });
 
@@ -789,6 +790,41 @@ const updateOfferStatus = async (req, res) => {
       return res.status(400).json({ message: "Invalid status value" });
     }
 
+    // إذا كانت الحالة 'rejected'، نقوم بحذف العرض مباشرة
+    if (status === 'rejected') {
+      // أولاً نبحث عن العرض لنحصل على بياناته (مثل productId و buyerId و offerPrice) قبل حذفه
+      const offer = await Offer.findById(offerId);
+
+      if (!offer) {
+        return res.status(404).json({ message: "Offer not found" });
+      }
+
+      // حذف العرض من قاعدة البيانات
+      await Offer.findByIdAndDelete(offerId);
+
+      // تحديث حالة المنتج ليصبح متاحاً
+      await ProductModel.findByIdAndUpdate(offer.productId, { status: 'Available' });
+
+      // إرسال إشعار للمشتري برفض وحذف العرض
+      await Notification.create({
+        userId: offer.buyerId,
+        title: {
+          ar: "تم رفض عرض السعر",
+          en: "Offer Rejected"
+        },
+        message: {
+          ar: `للأسف، قام البائع برفض عرض السعر الخاص بك بقيمة ${offer.offerPrice}.`,
+          en: `Unfortunately, the seller has rejected your price offer of ${offer.offerPrice}.`
+        },
+        type: "offer_rejected",
+        relatedId: offer._id,
+        isRead: false
+      });
+
+      return res.status(200).json({ message: "Offer rejected and deleted successfully" });
+    }
+
+    // أما لو الحالة 'accepted' (تكمل بشكل طبيعي)
     const offer = await Offer.findByIdAndUpdate(
       offerId,
       { status },
@@ -799,24 +835,9 @@ const updateOfferStatus = async (req, res) => {
       return res.status(404).json({ message: "Offer not found" });
     }
 
-    await ProductModel.findByIdAndUpdate(offer.productId, { status: 'Available' });
     if (status === 'accepted') {
       await ProductModel.findByIdAndUpdate(offer.productId, { status: 'Reserved' });
-      await Notification.create({
-        userId: offer.buyerId, // المشتري هو صاحب الإشعار
-        title: {
-          ar: "تم قبول عرض السعر",
-          en: "Offer Accepted"
-        },
-        message: {
-          ar: `لقد وافق البائع على عرض السعر الخاص بك بقيمة ${offer.offerPrice}.`,
-          en: `The seller has accepted your price offer of ${offer.offerPrice}.`
-        },
-        type: "offer_accepted", // متوافقة مع الـ Enum في الـ Schema
-        relatedId: offer._id, // ربط الإشعار بالعرض
-        isRead: false
-      });
-      }
+    }
 
     res.status(200).json({ message: `Offer ${status} successfully`, offer });
   } catch (error) {
@@ -914,6 +935,29 @@ const markAllAsRead = async (req, res) => {
   }
 };
 
+const checkProductBuyerAndUser = async (req, res) => {
+    try {
+        const buyerId = req.user.id; // معرف المشتري المستخرج من التوكن
+        const userId = req.params.id; // معرف البائع المستخرج من الـ Params
+
+        // البحث عما إذا كان هناك منتج يحقق الشرطين معاً (مع الاستفادة من الـ Index الذي تم إضافته)
+        const productExists = await ProductModel.findOne({
+            userId: userId,
+            buyer: buyerId
+        });
+        
+        if (productExists) {
+            return res.status(200).json({ exists: true });
+        } else {
+            return res.status(200).json({ exists: false });
+        }
+
+    } catch (err) {
+        console.error("Error checking product:", err);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
 module.exports = {
   getUploadUrl,
   addProduct,
@@ -948,5 +992,6 @@ module.exports = {
   updateUserLocation,
   getUserNotifications,
   markAsRead,
-  markAllAsRead
+  markAllAsRead,
+  checkProductBuyerAndUser
 };
