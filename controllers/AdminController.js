@@ -106,7 +106,7 @@ const deleteProduct = async (req, res) => {
     try {
         const { productId } = req.params;
         
-        const product = await ProductModel.findById(productId);
+        const product = await Product.findById(productId);
         if (!product) {
           return res.status(404).json({ message: "Product not found" });
         }
@@ -118,7 +118,7 @@ const deleteProduct = async (req, res) => {
         await Offer.deleteMany({ productId: productId });
     
         // 3. حذف المنتج نفسه
-        await ProductModel.findByIdAndDelete(productId);
+        await Product.findByIdAndDelete(productId);
     
         res.status(200).json({ message: "Product and its related conversations and offers deleted successfully" });
       } catch (error) {
