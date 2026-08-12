@@ -104,7 +104,7 @@ const getAllProducts = async (req, res) => {
 // حذف منتج
 const deleteProduct = async (req, res) => {
     try {
-        const { productId } = req.params;
+        const productId = req.params.id || req.params.productId;
         
         const product = await Product.findById(productId);
         if (!product) {
