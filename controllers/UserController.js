@@ -301,14 +301,26 @@ const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // << زود العداد بـ 1 وهات المنتج في نفس الخطوة >>
     const product = await ProductModel.findByIdAndUpdate(
       id,
       { $inc: { viewsCount: 1 } },
       { new: true }
-    ).populate('userId', 'fullName');
+    ).populate({
+      path: 'userId',
+      select: 'fullName reviews' // جلب الاسم والتقييمات الخاصة بالبائع
+    });
 
     if (!product) return res.status(404).json({ message: "Product not found" });
+
+    // حساب متوسط التقييمات وعدد المراجعين للبائع
+    let averageRating = 0;
+    let reviewsCount = 0;
+    
+    if (product.userId && product.userId.reviews && product.userId.reviews.length > 0) {
+      reviewsCount = product.userId.reviews.length;
+      const totalRating = product.userId.reviews.reduce((sum, rev) => sum + rev.rating, 0);
+      averageRating = (totalRating / reviewsCount).toFixed(1); // تقريب الرقم لأقرب عشري مثل 4.5
+    }
 
     const token = req.headers.authorization?.split(" ")[1];
 
@@ -328,7 +340,13 @@ const getProductById = async (req, res) => {
       _id: { $ne: id }
     }).limit(4);
 
-    res.json({ product, relatedProducts, myOffers });
+    // إرسال البيانات ومعها التقييمات المحسوبة
+    res.json({ 
+      product, 
+      relatedProducts, 
+      myOffers, 
+      sellerStats: { averageRating, reviewsCount } 
+    });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
