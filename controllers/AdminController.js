@@ -251,6 +251,34 @@ const deleteReport = async (req, res) => {
   }
 };
 
+const toggleFeaturedProduct = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // البحث عن المنتج للتأكد من وجوده وجلب حالته الحالية
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    // عكس قيمة isFeatured الحالية
+    product.isFeatured = !product.isFeatured;
+    await product.save();
+
+    res.status(200).json({
+      message: `Product is now ${product.isFeatured ? "Featured" : "Unfeatured"}`,
+      isFeatured: product.isFeatured,
+      product
+    });
+  } catch (err) {
+    console.error("Error toggling product featured status:", err);
+    return next(customError({
+      statusCode: 500,
+      message: "Failed to update product featured status"
+    }));
+  }
+};
+
 module.exports = {
     adminLogin,
     getAllUsers, 
@@ -266,5 +294,6 @@ module.exports = {
     getReports, 
     deleteReport,
     addSubCategory,
-    removeSubCategory
+    removeSubCategory,
+    toggleFeaturedProduct
 };

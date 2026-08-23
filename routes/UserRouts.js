@@ -6,7 +6,7 @@ const { toggleFavorite, getFavorites, isVerifiedSeller, getUploadUrl, register, 
     getProductsByCategory, accessChat, sendMessage, getMessages, getUserConversations, getUnreadCount,
     submitIdentity,getAllCategories,updateProfile,getSellerProfile,addReview, getReviews,addReport,getSellerDashboardData,
     toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus,updateUserLocation,getUserNotifications,
-    markAsRead,markAllAsRead,checkProductBuyerAndUser } = require('../controllers/UserController')
+    markAsRead,markAllAsRead,checkProductBuyerAndUser,toggleHiddenStatus } = require('../controllers/UserController')
 
 UserRouter.patch('/update-status/:offerId', authorized, updateOfferStatus);
 UserRouter.post('/create', authorized, createOffer);
@@ -43,6 +43,7 @@ UserRouter.get("/notification", authorized, getUserNotifications);
 UserRouter.patch('/notification/read-all', authorized, markAllAsRead);
 UserRouter.patch("/notification/:id", authorized, markAsRead);
 UserRouter.get('/checkproduct/:id', authorized, checkProductBuyerAndUser);
+UserRouter.patch('/toggle-hidden/:productId', authorized, toggleHiddenStatus);
 
 module.exports = UserRouter;
 

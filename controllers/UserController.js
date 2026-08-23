@@ -251,7 +251,10 @@ const addProduct = async (req, res) => {
 // 🧱 عرض كل المنتجات
 const AllProduct = async (req, res, next) => {
   try {
-    const products = await ProductModel.find({}).populate('category');
+    const products = await ProductModel.find({ 
+      isHidden: { $ne: true } 
+    }).populate('category');
+    
     res.json(products);
   } catch (err) {
     console.error("Error retrieving products:", err);
@@ -365,7 +368,8 @@ const getProductsByCategory = async (req, res, next) => {
     }
 
     // جلب المنتجات ومعها إحداثياتها (product.location) بدون حساب مسافات في السيرفر
-    let products = await ProductModel.find({ category: matchingCategory._id })
+    let products = await ProductModel.find({ category: matchingCategory._id,
+      isHidden: { $ne: true } })
       .populate('category')
       .lean();
 
@@ -734,6 +738,33 @@ const toggleProductStatus = async (req, res) => {
   }
 };
 
+const toggleHiddenStatus = async (req, res) => {
+    try {
+        const { productId } = req.params;
+        const userId = req.user.id; // الـ ID بتاع البائع المسجل دخول (من الـ Middleware الخاص بالـ Auth)
+
+        // البحث عن المنتج والتأكد أنه يخص نفس المستخدم حتي لا يتم التعديل بواسطة شخص آخر
+        const product = await ProductModel.findOne({ _id: productId, userId: userId });
+        
+        if (!product) {
+            return res.status(404).json({ message: "Product not found or unauthorized" });
+        }
+
+        // تبديل القيمة (لو كانت true تخليها false والعكس صحيح)
+        product.isHidden = !product.isHidden;
+        await product.save();
+
+        res.status(200).json({ 
+            message: "Hidden status updated successfully", 
+            isHidden: product.isHidden,
+            product 
+        });
+    } catch (err) {
+        console.error("Error toggling hidden status:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
 // دالة حذف المنتج
 const deleteProduct = async (req, res) => {
   try {
@@ -1011,5 +1042,6 @@ module.exports = {
   getUserNotifications,
   markAsRead,
   markAllAsRead,
-  checkProductBuyerAndUser
+  checkProductBuyerAndUser,
+  toggleHiddenStatus
 };

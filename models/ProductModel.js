@@ -14,6 +14,14 @@ const productSchema = new mongoose.Schema({
         enum: ['Available', 'Reserved', 'Sold'], 
         default: 'Available' 
     },
+    isFeatured: {
+        type: Boolean,
+        default: false
+    },
+    isHidden: {
+        type: Boolean,
+        default: false
+    },
     buyer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     images: [{ type: String }], 
     video: { type: String },    
