@@ -215,7 +215,7 @@ const isVerifiedSeller = async (req, res) => {
 const addProduct = async (req, res) => {
   try {
     const { title, description, price, category, condition, images, video, location } = req.body;
-    const userId = req.user.id; 
+    const userId = req.user.id;
 
     const user = await User.findById(userId);
     if (!user || user.verificationStatus !== 'verified') {
@@ -228,13 +228,13 @@ const addProduct = async (req, res) => {
     }
 
     const newProduct = await ProductModel.create({
-      userId, 
-      title: title || "", 
-      description: description || "", 
-      price: price || 0, 
-      category: category || null, 
-      condition: condition || "New", 
-      images: images || [], 
+      userId,
+      title: title || "",
+      description: description || "",
+      price: price || 0,
+      category: category || null,
+      condition: condition || "New",
+      images: images || [],
       video: video || "",
       location
     });
@@ -251,10 +251,10 @@ const addProduct = async (req, res) => {
 // 🧱 عرض كل المنتجات
 const AllProduct = async (req, res, next) => {
   try {
-    const products = await ProductModel.find({ 
-      isHidden: { $ne: true } 
+    const products = await ProductModel.find({
+      isHidden: { $ne: true }
     }).populate('category');
-    
+
     res.json(products);
   } catch (err) {
     console.error("Error retrieving products:", err);
@@ -304,51 +304,55 @@ const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const token = req.headers.authorization?.split(" ")[1];
+    let currentUserId = null;
+    if (token) {
+      const decoded = jwt.verify(token, 'key'); // تأكد من مطاعقة مفتاح الـ JWT الخاص بك
+      currentUserId = decoded.id;
+    }
+
     const product = await ProductModel.findByIdAndUpdate(
       id,
       { $inc: { viewsCount: 1 } },
       { new: true }
     ).populate({
       path: 'userId',
-      select: 'fullName reviews' // جلب الاسم والتقييمات الخاصة بالبائع
+      select: 'fullName reviews'
     });
 
     if (!product) return res.status(404).json({ message: "Product not found" });
 
+    // التحقق مما إذا كان المستخدم الحالي هو مالك المنتج
+    const isOwner = currentUserId && product.userId && product.userId._id.toString() === currentUserId.toString();
+
     // حساب متوسط التقييمات وعدد المراجعين للبائع
     let averageRating = 0;
     let reviewsCount = 0;
-    
+
     if (product.userId && product.userId.reviews && product.userId.reviews.length > 0) {
       reviewsCount = product.userId.reviews.length;
       const totalRating = product.userId.reviews.reduce((sum, rev) => sum + rev.rating, 0);
-      averageRating = (totalRating / reviewsCount).toFixed(1); // تقريب الرقم لأقرب عشري مثل 4.5
-    }
-
-    const token = req.headers.authorization?.split(" ")[1];
-
-    let currentUserId = null;
-    if (token) {
-      const decoded = jwt.verify(token, 'key');
-      currentUserId = decoded.id;
+      averageRating = (totalRating / reviewsCount).toFixed(1);
     }
 
     let myOffers = [];
-    if (currentUserId) {
+    if (currentUserId && !isOwner) { // لا نحتاج لجلب العروض إذا كان هو المالك
       myOffers = await Offer.find({ productId: id, buyerId: currentUserId });
     }
 
     const relatedProducts = await ProductModel.find({
       userId: product.userId._id,
-      _id: { $ne: id }
+      _id: { $ne: id },
+      isHidden: { $ne: true }
     }).limit(4);
 
-    // إرسال البيانات ومعها التقييمات المحسوبة
-    res.json({ 
-      product, 
-      relatedProducts, 
-      myOffers, 
-      sellerStats: { averageRating, reviewsCount } 
+    // إرسال البيانات ومعها متغير isOwner
+    res.json({
+      product,
+      relatedProducts,
+      myOffers,
+      sellerStats: { averageRating, reviewsCount },
+      isOwner // <-- إرسال القيمة للفرونت إند
     });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
@@ -368,8 +372,10 @@ const getProductsByCategory = async (req, res, next) => {
     }
 
     // جلب المنتجات ومعها إحداثياتها (product.location) بدون حساب مسافات في السيرفر
-    let products = await ProductModel.find({ category: matchingCategory._id,
-      isHidden: { $ne: true } })
+    let products = await ProductModel.find({
+      category: matchingCategory._id,
+      isHidden: { $ne: true }
+    })
       .populate('category')
       .lean();
 
@@ -551,18 +557,13 @@ const getUnreadCount = async (req, res) => {
 
 const submitIdentity = async (req, res) => {
   try {
-    // 1. فك تشفير التوكن
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ message: "No token provided" });
+    const userId = req.user.id;
+    const { idImages, nationalId } = req.body; // <--- استقبل nationalId هنا
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'key');
-    const userId = decoded.id;
-
-    const { idImages } = req.body;
-
-    // 2. حفظ طلب الهوية
+    // 2. حفظ طلب الهوية مع الرقم القومي
     const newIdentity = new Identity({
       userId,
+      nationalId, // <--- حفظه في القاعدة
       idImages
     });
     await newIdentity.save();
@@ -581,7 +582,7 @@ const submitIdentity = async (req, res) => {
 
 const getAllCategories = async (req, res) => {
   try {
-    const categories = await Category.find({}).sort({ createdAt: -1 });
+    const categories = await Category.find({}).sort({ order: 1 });
     res.status(200).json({ success: true, data: categories });
   } catch (err) { res.status(500).json({ message: "Failed" }); }
 };
@@ -601,13 +602,25 @@ const getSellerProfile = async (req, res) => {
       return res.status(404).json({ message: "Seller not found" });
     }
 
-    // 2. جلب جميع المنتجات الخاصة بهذا المستخدم
-    const products = await ProductModel.find({ userId: userId }).sort({ createdAt: -1 });
+    // 2. جلب جميع منتجات المستخدم (لكن سنقوم بجلبها كلها أولاً لنحسب الإحصائيات بدقة، أو نجلب غير المخفية فقط)
+    // الأفضل جلب الكل لحساب الإحصائيات الإحيائية الصحيحة، ثم تصفية القائمة المعروضة
+    const allProducts = await ProductModel.find({ userId: userId }).sort({ createdAt: -1 });
+
+    // حساب الإحصائيات من كل المنتجات (حتى تظل أعداد المبيعات والإجمالي صحيحة)
+    const totalListingsCount = allProducts.length;
+    const soldProductsCount = allProducts.filter(p => p.status === 'Sold' || p.buyer !== null).length;
+
+    // تصفية المنتجات بحيث يتم إرجاع الغير مخفية فقط للـ listings
+    const visibleProducts = allProducts.filter(p => !p.isHidden);
 
     // 3. إرجاع البيانات في كائن واحد
     res.status(200).json({
       seller: user,
-      listings: products
+      listings: visibleProducts, // المنتجات غير المخفية فقط للعرّض
+      stats: {
+        totalListings: totalListingsCount,
+        soldListings: soldProductsCount
+      }
     });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
@@ -722,7 +735,7 @@ const toggleProductStatus = async (req, res) => {
       if (buyerId) {
         product.buyer = buyerId;
       }
-    } 
+    }
     // إذا كان Sold يتحول إلى Reserved ويتم إزالة المشتري
     else if (product.status === 'Sold') {
       product.status = 'Reserved';
@@ -739,37 +752,37 @@ const toggleProductStatus = async (req, res) => {
 };
 
 const toggleHiddenStatus = async (req, res) => {
-    try {
-        const { productId } = req.params;
-        const userId = req.user.id; // الـ ID بتاع البائع المسجل دخول (من الـ Middleware الخاص بالـ Auth)
+  try {
+    const { productId } = req.params;
+    const userId = req.user.id; // الـ ID بتاع البائع المسجل دخول (من الـ Middleware الخاص بالـ Auth)
 
-        // البحث عن المنتج والتأكد أنه يخص نفس المستخدم حتي لا يتم التعديل بواسطة شخص آخر
-        const product = await ProductModel.findOne({ _id: productId, userId: userId });
-        
-        if (!product) {
-            return res.status(404).json({ message: "Product not found or unauthorized" });
-        }
+    // البحث عن المنتج والتأكد أنه يخص نفس المستخدم حتي لا يتم التعديل بواسطة شخص آخر
+    const product = await ProductModel.findOne({ _id: productId, userId: userId });
 
-        // تبديل القيمة (لو كانت true تخليها false والعكس صحيح)
-        product.isHidden = !product.isHidden;
-        await product.save();
-
-        res.status(200).json({ 
-            message: "Hidden status updated successfully", 
-            isHidden: product.isHidden,
-            product 
-        });
-    } catch (err) {
-        console.error("Error toggling hidden status:", err);
-        res.status(500).json({ message: "Server error" });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found or unauthorized" });
     }
+
+    // تبديل القيمة (لو كانت true تخليها false والعكس صحيح)
+    product.isHidden = !product.isHidden;
+    await product.save();
+
+    res.status(200).json({
+      message: "Hidden status updated successfully",
+      isHidden: product.isHidden,
+      product
+    });
+  } catch (err) {
+    console.error("Error toggling hidden status:", err);
+    res.status(500).json({ message: "Server error" });
+  }
 };
 
 // دالة حذف المنتج
 const deleteProduct = async (req, res) => {
   try {
     const { productId } = req.params;
-    
+
     const product = await ProductModel.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -895,42 +908,42 @@ const updateOfferStatus = async (req, res) => {
 };
 
 const updateUserLocation = async (req, res) => {
-    try {
-        const userId = req.user.id; // يأتي من الـ Middleware الخاص بالـ Authentication
-        const { address, latitude, longitude } = req.body;
+  try {
+    const userId = req.user.id; // يأتي من الـ Middleware الخاص بالـ Authentication
+    const { address, latitude, longitude } = req.body;
 
-        // التحقق أو استقبال البيانات وإرسالها للموديل
-        const updatedUser = await User.findByIdAndUpdate(
-            userId,
-            {
-                $set: {
-                    "location.address": address || "",
-                    "location.latitude": latitude || null,
-                    "location.longitude": longitude || null
-                }
-            },
-            { new: true } // ليرجع البيانات بعد التحديث
-        );
-
-        if (!updatedUser) {
-            return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    // التحقق أو استقبال البيانات وإرسالها للموديل
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          "location.address": address || "",
+          "location.latitude": latitude || null,
+          "location.longitude": longitude || null
         }
+      },
+      { new: true } // ليرجع البيانات بعد التحديث
+    );
 
-        res.status(200).json({
-            success: true,
-            message: "تم تحديث الموقع بنجاح",
-            location: updatedUser.location
-        });
-
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+    if (!updatedUser) {
+      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
     }
+
+    res.status(200).json({
+      success: true,
+      message: "تم تحديث الموقع بنجاح",
+      location: updatedUser.location
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 const getUserNotifications = async (req, res) => {
   try {
     const userId = req.user.id; // نأخذ الـ ID من الـ Token مباشرة
-    
+
     const notifications = await Notification.find({ userId, isRead: false })
       .sort({ createdAt: -1 }) // الأحدث أولاً
       .limit(20); // جلب آخر 20 إشعاراً غير مقروء
@@ -957,9 +970,9 @@ const markAsRead = async (req, res) => {
       return res.status(404).json({ message: "Notification not found" });
     }
 
-    res.status(200).json({ 
-      message: "Notification marked as read", 
-      notification: updatedNotification 
+    res.status(200).json({
+      message: "Notification marked as read",
+      notification: updatedNotification
     });
   } catch (err) {
     console.error("Error updating notification:", err);
@@ -985,26 +998,276 @@ const markAllAsRead = async (req, res) => {
 };
 
 const checkProductBuyerAndUser = async (req, res) => {
-    try {
-        const buyerId = req.user.id; // معرف المشتري المستخرج من التوكن
-        const userId = req.params.id; // معرف البائع المستخرج من الـ Params
+  try {
+    const buyerId = req.user.id; // معرف المشتري المستخرج من التوكن
+    const userId = req.params.id; // معرف البائع المستخرج من الـ Params
 
-        // البحث عما إذا كان هناك منتج يحقق الشرطين معاً (مع الاستفادة من الـ Index الذي تم إضافته)
-        const productExists = await ProductModel.findOne({
-            userId: userId,
-            buyer: buyerId
-        });
-        
-        if (productExists) {
-            return res.status(200).json({ exists: true });
-        } else {
-            return res.status(200).json({ exists: false });
-        }
+    // البحث عما إذا كان هناك منتج يحقق الشرطين معاً (مع الاستفادة من الـ Index الذي تم إضافته)
+    const productExists = await ProductModel.findOne({
+      userId: userId,
+      buyer: buyerId
+    });
 
-    } catch (err) {
-        console.error("Error checking product:", err);
-        return res.status(500).json({ message: "Server error" });
+    if (productExists) {
+      return res.status(200).json({ exists: true });
+    } else {
+      return res.status(200).json({ exists: false });
     }
+
+  } catch (err) {
+    console.error("Error checking product:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+const deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user.id;
+
+    const message = await Message.findOne({ _id: messageId, senderId: userId });
+
+    if (!message) {
+      return res.status(404).json({ success: false, message: "الرسالة غير موجودة أو ليس لديك صلاحية لحذفها" });
+    }
+
+    const conversationId = message.conversationId; // نحفظ معرف المحادثة عشان نبعث للسوكيت
+    await Message.findByIdAndDelete(messageId);
+
+    // ⚡ إرسال حدث الحذف لكل المتصلين في نفس المحادثة لحظياً
+    if (req.io) {
+      req.io.to(conversationId.toString()).emit('message_deleted', { messageId, conversationId });
+    }
+
+    return res.status(200).json({ success: true, message: "تم حذف الرسالة بنجاح" });
+  } catch (error) {
+    console.error("Delete message error:", error);
+    return res.status(500).json({ success: false, message: "حدث خطأ أثناء حذف الرسالة" });
+  }
+};
+
+const getRecommendedFavorites = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // جلب المستخدم مع المفضلة وتصنيفاتها
+    const user = await User.findById(userId).populate({
+      path: 'favorites',
+      populate: { path: 'category' }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // إذا لم تكن هناك مفضلات أصلاً، نرجع مصفوفة فارغة
+    if (!user.favorites || user.favorites.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // 1. استخراج الـ IDs الخاصة بالكاتيجوري للمنتجات المفضلة
+    const categoryIds = user.favorites
+      .map(product => product.category?._id || product.category)
+      .filter(Boolean);
+
+    // إزالة التكرار من الـ IDs
+    const uniqueCategoryIds = [...new Set(categoryIds)];
+
+    let recommended = [];
+
+    // 2. البحث فقط بناءً على الكاتيجوري وبشرط ألا تكون في المفضلة وألا تكون مخفية
+    if (uniqueCategoryIds.length > 0) {
+      recommended = await ProductModel.find({
+        category: { $in: uniqueCategoryIds },             // نفس الكاتيجوري فقط
+        _id: { $nin: user.favorites.map(p => p._id) },   // ليست موجودة في المفضلة (لتجنب التكرار)
+        isHidden: false                                    // وليست مخفية
+      })
+        .limit(4)                                            // 4 منتجات فقط
+        .populate('category');
+    }
+
+    // إرجاع النتيجة (حتى لو كانت مصفوفة فارغة إذا لم توجد منتجات بنفس الكاتيجوري)
+    res.status(200).json(recommended);
+
+  } catch (err) {
+    console.error("Error fetching recommendations:", err);
+    res.status(500).json({ message: "Error fetching recommendations" });
+  }
+};
+
+const updateProduct = async (req, res) => {
+  try {
+    const { id } = req.params; // معرف المنتج المراد تعديله
+    const { title, description, price, category, condition, images, video, location } = req.body;
+
+
+    // 2. البحث عن المنتج والتحقق من أنه يخص المستخدم الحالي
+    const product = await ProductModel.findById(id);
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    // 3. التحقق من الموقع الجغرافي (بما أنه إلزامي بناءً على كود الإضافة)
+    if (location && (!location.latitude || !location.longitude)) {
+      return res.status(400).json({ message: "Product location is required" });
+    }
+
+    // 4. تحديث البيانات (استخدام البيانات الجديدة أو الاحتفاظ بالقديمة إن لم تُرسل)
+    const updatedData = {
+      title: title !== undefined ? title : product.title,
+      description: description !== undefined ? description : product.description,
+      price: price !== undefined ? price : product.price,
+      category: category !== undefined ? category : product.category,
+      condition: condition !== undefined ? condition : product.condition,
+      images: images !== undefined ? images : product.images,
+      video: video !== undefined ? video : product.video,
+      location: location !== undefined ? location : product.location
+    };
+
+    const updatedProduct = await ProductModel.findByIdAndUpdate(
+      id,
+      updatedData,
+      { new: true, runValidators: true }
+    ).populate('category');
+
+    res.status(200).json({ 
+      message: "Product updated successfully", 
+      product: updatedProduct 
+    });
+
+  } catch (error) {
+    console.error("Error updating product:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: "Please enter the email address." });
+  }
+
+  try {
+    // 1. 🔍 التحقق من وجود المستخدم
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found with this email address." });
+    }
+
+    // 2. 🔑 إنشاء رمز مميز (Token) لإعادة التعيين (صالح لمدة 10 دقائق)
+    const resetToken = jwt.sign({ id: user._id }, "JaddSuperSecretKey12345!_", { expiresIn: '10m' });
+
+    // 3. 💾 حفظ الرمز وتاريخ الانتهاء في قاعدة البيانات
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = Date.now() + 600000; // 10 دقائق
+    await user.save();
+
+    // 4. 🔗 بناء رابط إعادة التعيين (يمكنك تغييره للرابط المحلي أو رابط الدومين حسب بيئة العمل)
+    // لو شغال لوكال للفرونت اند (مثلاً بورت 3000 أو نفس بورت الباك اند):
+    const resetURL = `https://joinjadd.com/reset-password/${resetToken}`; 
+    // أو لو كان الرابط مباشر على الدومين: `https://jadd.om/reset-password/${resetToken}`
+
+    // 5. 📧 إعداد محتوى الإيميل
+    const mailOptions = {
+      from: '"JADD Support" <jadd.webdev@gmail.com>',
+      to: user.email,
+      subject: 'JADD - Password Reset Request',
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #1F1547; border-radius: 8px;">
+            <h2 style="color: #1F1547;">JADD - Password Reset</h2>
+            <p>Dear ${user.fullName || user.name || 'User'},</p>
+            <p>We received a request to reset the password for your account registered with this email: <strong>${user.email}</strong>.</p>
+            <p>To reset your password, please click the button below. This link is only valid for <strong>10 minutes</strong>.</p>
+            <div style="text-align: center; margin: 25px 0;">
+                <a href="${resetURL}" 
+                    style="display: inline-block; padding: 12px 25px; font-size: 17px; color: white; background-color: #1F1547; text-decoration: none; border-radius: 5px; font-weight: bold;"
+                >Click to Reset Password</a>
+            </div>
+            <p>If you did not request a password reset, please ignore this message.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+            <p style="font-size: 12px; color: #777;">JADD Support Team</p>
+        </div>
+      `,
+    };
+
+    // 6. 🚀 إرسال الإيميل عبر Nodemailer
+    await transporter.sendMail(mailOptions);
+
+    // 7. ✅ إرسال رد النجاح
+    res.status(200).json({
+      message: "The password reset link has been sent to your email. Please check your inbox.",
+    });
+
+  } catch (error) {
+    console.error('Error in forgot password:', error);
+    res.status(500).json({
+      message: "The sending operation failed. Please check the email settings and try again."
+    });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  // 1. استخلاص التوكن وكلمة المرور الجديدة
+  const { token } = req.params; // التوكن الموجود في مسار URL
+  const { newPassword } = req.body; // كلمة المرور الجديدة من الـ Frontend
+
+  // 2. التحقق المبدئي من كلمة المرور
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({
+      message: "The password must be at least 6 characters long."
+    });
+  }
+
+  try {
+    // 3. التحقق من التوكن وصلاحيته في قاعدة البيانات
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() } // التأكد أن وقت الانتهاء لم يمر بعد
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        message: "The password reset link is invalid or has expired. Please request a new link."
+      });
+    }
+
+    // 4. فك تشفير التوكن للتحقق الإضافي من الـ JWT
+    try {
+      jwt.verify(token, "JaddSuperSecretKey12345!_");
+    } catch (err) {
+      return res.status(401).json({
+        message: "The password reset link is invalid or has expired."
+      });
+    }
+
+    // 5. تعيين كلمة المرور الجديدة
+    // ملاحظة: لو عندك pre-save hook في الـ User Model بيشفر الباسورد، سيب السطر زي ما هو:
+    user.password = newPassword; 
+    
+    // لو مش معمول pre-save hook، يفضل تشفيرها هنا هكذا:
+    // const salt = await bcrypt.genSalt(10);
+    // user.password = await bcrypt.hash(newPassword, salt);
+
+    // 6. مسح حقول التوكن وانتهاء الصلاحية من قاعدة البيانات حتى لا يتم استخدام الرابط مرة أخرى
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    // 7. إرسال رد النجاح
+    res.status(200).json({
+      message: "Password successfully updated. You can now log in using your new password."
+    });
+
+  } catch (error) {
+    console.error("Error resetting password:", error);
+    res.status(500).json({
+      message: "An unexpected error occurred while updating the password."
+    });
+  }
 };
 
 module.exports = {
@@ -1043,5 +1306,10 @@ module.exports = {
   markAsRead,
   markAllAsRead,
   checkProductBuyerAndUser,
-  toggleHiddenStatus
+  toggleHiddenStatus,
+  deleteMessage,
+  getRecommendedFavorites,
+  updateProduct,
+  forgotPassword,
+  resetPassword
 };

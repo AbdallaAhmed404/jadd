@@ -25,10 +25,10 @@ const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
     enum: [ "offer_received", "offer_accepted", "offer_rejected", "review"],
-    required: true
+    required: true,
+    index: true // لتسريع تصفية الإشعارات حسب النوع إن أردت ذلك مستقبلاً
   },
 
-  
   // معرف العنصر المرتبط
   relatedId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -38,11 +38,19 @@ const notificationSchema = new mongoose.Schema({
   // هل تم قراءة الإشعار أم لا
   isRead: {
     type: Boolean,
-    default: false
+    default: false,
+    index: true // لتسريع فلترة الإشعارات المقروءة وغير المقروءة
   }
 
 }, {
   timestamps: true // لإنشاء حقلين تلقائياً: createdAt و updatedAt
 });
+
+// فهارس مركبة (Compound Indexes) عالية الأهمية:
+// 1. فهرس يجمع بين المستخدم وحالة القراءة ووقت الإنشاء: لتسريع جلب أحدث الإشعارات للمستخدم مع إمكانية فرزها أو فلترتها بكفاءة فائقة (مثل جلب الإشعارات غير المقروءة وترتيبها تنازلياً).
+notificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
+
+// 2. فهرس لترتيب إشعارات المستخدم العامّة تنازلياً حسب وقت الإنشاء (الأحدث أولاً).
+notificationSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Notification", notificationSchema);

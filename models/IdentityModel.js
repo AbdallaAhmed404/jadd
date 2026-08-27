@@ -5,15 +5,25 @@ const identitySchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId, 
         ref: 'User', 
         required: true,
-        unique: true // لضمان أن كل يوزر له طلب هوية واحد فقط
+        unique: true 
+    },
+    nationalId: { 
+        type: String,
+        required: true,
+        trim: true
     },
     idImages: { 
-        type: [String], // مصفوفة لتخزين روابط الصور
+        type: [String], 
         required: true 
     },
     status: {
         type: String,
-        enum: ['unverified', 'verified']
+        enum: ['unverified', 'verified'],
+        default: 'unverified'
+    },
+    rejectionReason: { // <--- أضفنا هذا الحقل هنا لحفظ السبب في قاعدة البيانات
+        type: String,
+        default: ""
     }
 }, { timestamps: true });
 

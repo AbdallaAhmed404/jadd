@@ -6,8 +6,12 @@ const { toggleFavorite, getFavorites, isVerifiedSeller, getUploadUrl, register, 
     getProductsByCategory, accessChat, sendMessage, getMessages, getUserConversations, getUnreadCount,
     submitIdentity,getAllCategories,updateProfile,getSellerProfile,addReview, getReviews,addReport,getSellerDashboardData,
     toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus,updateUserLocation,getUserNotifications,
-    markAsRead,markAllAsRead,checkProductBuyerAndUser,toggleHiddenStatus } = require('../controllers/UserController')
+    markAsRead,markAllAsRead,checkProductBuyerAndUser,toggleHiddenStatus,deleteMessage,getRecommendedFavorites,updateProduct,
+    forgotPassword,resetPassword } = require('../controllers/UserController')
 
+UserRouter.post('/forgot-password', forgotPassword);
+UserRouter.post('/reset-password/:token', resetPassword);
+UserRouter.get('/recommendations', authorized, getRecommendedFavorites);
 UserRouter.patch('/update-status/:offerId', authorized, updateOfferStatus);
 UserRouter.post('/create', authorized, createOffer);
 UserRouter.get('/my-offers', authorized, getSellerOffers);
@@ -32,7 +36,7 @@ UserRouter.post('/login', login);
 UserRouter.get("/product/:id", getProductById);
 UserRouter.get('/allproduct', AllProduct);
 UserRouter.get('/category/:category', getProductsByCategory);
-UserRouter.post('/submit', submitIdentity);
+UserRouter.post('/submit', authorized, submitIdentity);
 UserRouter.get('/categories', getAllCategories);
 UserRouter.get('/sellerProfile/:userId', getSellerProfile);
 UserRouter.post('/review/:userId', authorized, addReview);
@@ -44,6 +48,8 @@ UserRouter.patch('/notification/read-all', authorized, markAllAsRead);
 UserRouter.patch("/notification/:id", authorized, markAsRead);
 UserRouter.get('/checkproduct/:id', authorized, checkProductBuyerAndUser);
 UserRouter.patch('/toggle-hidden/:productId', authorized, toggleHiddenStatus);
+UserRouter.delete('/deleteMessage/:messageId', authorized, deleteMessage);
+UserRouter.put('/updateProduct/:id', updateProduct);
 
 module.exports = UserRouter;
 

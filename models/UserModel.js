@@ -11,7 +11,7 @@ const userSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true },
     phone: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true, index: true },
     password: { type: String, required: true },
     bio: { type: String, default: "" },
     location: {
@@ -24,6 +24,8 @@ const userSchema = new mongoose.Schema(
     otp: { type: String },
     isVerified: { type: Boolean, default: false },
     views: { type: Number, default: 0 },
+    resetPasswordToken: { type: String, default: null, index: true },
+    resetPasswordExpires: { type: Date, default: null },
     verificationStatus: {
       type: String,
       enum: ['unverified', 'pending', 'verified'],
@@ -37,14 +39,15 @@ const userSchema = new mongoose.Schema(
     }],
     favorites: [{
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product' // يجب أن يكون اسم الموديل الخاص بالمنتجات
+      ref: 'Product',
+      index: true 
     }]
   },
   {
     timestamps: true,
     toJSON: {
       transform: (doc, ret) => {
-        return __.omit(ret, ['__v', 'password', 'resetCode']);
+        return __.omit(ret, ['__v', 'password', 'otp', 'resetPasswordToken']);
       }
     }
   }

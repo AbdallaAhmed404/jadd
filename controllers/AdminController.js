@@ -9,42 +9,104 @@ const Category = require('../models/CategoryModel');
 const Report = require('../models/ReportModel');
 const Offer = require('../models/OfferModel');
 const Conversation = require('../models/ConversationModel');
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail', // أو الخدمة التي تستخدمها
+  auth: {
+    user: "jadd.webdev@gmail.com",
+    pass: "tmrp qjgc uwxz lees",
+  },
+});
+
+const updateVendorStatus = async (req, res) => {
+    try {
+        const userId = req.params.id; // هذا هو الـ userId القادم من الفرونت
+        const { status, rejectionReason } = req.body; 
+
+        // 1. تحديث حالة التحقق في جدول الـ User
+        const user = await User.findByIdAndUpdate(
+            userId, 
+            { verificationStatus: status },
+            { new: true }
+        );
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        // 2. تحديث جدول الـ Identity لحفظ سبب الرفض والحالة
+        const identityUpdateData = {
+            status: status === 'verified' ? 'verified' : 'unverified',
+            rejectionReason: status === 'unverified' ? (rejectionReason || "") : "" // لو تم القبول نمسح السبب القديم، لو رفض نحفظ السبب الجديد
+        };
+
+        const updatedIdentity = await Identity.findOneAndUpdate(
+            { userId: userId },
+            identityUpdateData,
+            { new: true }
+        );
+
+        // 3. إذا كانت الحالة 'unverified' (رفض) وتم كتابة سبب، نقوم بإرسال إيميل
+        if (status === 'unverified' && rejectionReason && user.email) {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: user.email,
+                subject: 'Vendor Account Verification Rejected',
+                text: `Hello ${user.fullName || 'Vendor'},\n\nUnfortunately, your verification request has been rejected.\n\nReason: ${rejectionReason}\n\nPlease update your information and try again.\n\nBest Regards,\nJadd Team`
+            };
+
+            await transporter.sendMail(mailOptions);
+        }
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Status updated and identity saved successfully", 
+            data: updatedIdentity 
+        });
+
+    } catch (err) {
+        console.error("Error updating status:", err);
+        res.status(500).json({ success: false, message: "Server error" });
+    }
+};
 
 const adminLogin = async (req, res, next) => {
     const { email, password } = req.body;
 
     try {
+        // 1. البحث عن الأدمن بالإيميل فقط
         const admin = await Admin.findOne({ email });
 
         if (!admin) {
             return res.status(401).json({ message: 'Invalid admin credentials' });
         }
 
-        // --- التعديل الجديد: التحقق إذا كان الحساب نشطاً ---
+        // 2. التحقق إذا كان الحساب نشطاً
         if (admin.isActive === false) {
             return res.status(403).json({ 
                 message: 'Your account is deactivated. Please contact the super admin.' 
             });
         }
 
-        // مقارنة كلمة المرور
+        // 3. مقارنة كلمة المرور المدخلة بالباسورد المشفر في قاعدة البيانات
         const isMatch = await bcrypt.compare(password, admin.password);
 
         if (!isMatch) {
             return res.status(401).json({ message: 'Invalid admin credentials' });
         }
 
-        // إنشاء التوكن
+        // 4. إنشاء التوكن (JWT)
         const token = jwt.sign(
             { id: admin._id, role: admin.role }, 
             process.env.JWT_SECRET || 'key',
             { expiresIn: '1d' }
         );
 
+        // 5. إرسال الاستجابة بنجاح
         res.status(200).json({ 
             message: 'Admin logged in successfully', 
             token,
-            // إرسال بيانات إضافية للفرونت إند (اختياري)
             admin: {
                 email: admin.email,
                 role: admin.role
@@ -53,7 +115,6 @@ const adminLogin = async (req, res, next) => {
 
     } catch (err) {
         console.error("Admin login error:", err);
-        // تأكد أن دالة customError مستوردة بشكل صحيح
         return res.status(500).json({ message: "Failed to login admin" });
     }
 };
@@ -171,7 +232,7 @@ const updateUserVerification = async (req, res) => {
 
 const getAllCategories = async (req, res) => {
     try {
-        const categories = await Category.find({}).sort({ createdAt: -1 });
+        const categories = await Category.find({}).sort({ order: 1 });
         res.status(200).json({ success: true, data: categories });
     } catch (err) { res.status(500).json({ message: "Failed" }); }
 };
@@ -279,6 +340,31 @@ const toggleFeaturedProduct = async (req, res, next) => {
   }
 };
 
+// إعادة ترتيب الكاتيجوري
+const reorderCategories = async (req, res) => {
+  try {
+    const { orderedIds } = req.body; // مصفوفة الـ IDs بالترتيب الجديد
+
+    if (!orderedIds || !Array.isArray(orderedIds)) {
+      return res.status(400).json({ success: false, message: "Invalid data format" });
+    }
+
+    // تحديث الترتيب لكل كاتيجوري بناءً على الـ index الجديد
+    const updatePromises = orderedIds.map((id, index) => {
+      return Category.findByIdAndUpdate(id, { order: index });
+    });
+
+    await Promise.all(updatePromises);
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Categories reordered successfully" 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
     adminLogin,
     getAllUsers, 
@@ -295,5 +381,7 @@ module.exports = {
     deleteReport,
     addSubCategory,
     removeSubCategory,
-    toggleFeaturedProduct
+    toggleFeaturedProduct,
+    reorderCategories,
+    updateVendorStatus
 };
