@@ -214,7 +214,7 @@ const isVerifiedSeller = async (req, res) => {
 
 const addProduct = async (req, res) => {
   try {
-    const { title, description, price, category, condition, images, video, location } = req.body;
+    const { title, description, price, category, condition, images, video, location, isNegotiable } = req.body;
     const userId = req.user.id;
 
     const user = await User.findById(userId);
@@ -236,7 +236,8 @@ const addProduct = async (req, res) => {
       condition: condition || "New",
       images: images || [],
       video: video || "",
-      location
+      location,
+      isNegotiable: isNegotiable || false,
     });
 
     const populatedProduct = await ProductModel.findById(newProduct._id).populate('category');
@@ -307,23 +308,63 @@ const getProductById = async (req, res) => {
     const token = req.headers.authorization?.split(" ")[1];
     let currentUserId = null;
     if (token) {
-      const decoded = jwt.verify(token, 'key'); // تأكد من مطاعقة مفتاح الـ JWT الخاص بك
+      const decoded = jwt.verify(token, 'key'); // تأكد من مطابقة مفتاح الـ JWT الخاص بك
       currentUserId = decoded.id;
     }
 
-    const product = await ProductModel.findByIdAndUpdate(
-      id,
-      { $inc: { viewsCount: 1 } },
-      { new: true }
-    ).populate({
+    // 1. التقاط الـ IP الخاص بالجهاز أوتوماتيكياً من الـ Request
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+    // 2. نبحث عن المنتج أولاً لمعرفة من هو مالكه
+    let product = await ProductModel.findById(id).populate({
       path: 'userId',
       select: 'fullName reviews'
     });
 
     if (!product) return res.status(404).json({ message: "Product not found" });
 
-    // التحقق مما إذا كان المستخدم الحالي هو مالك المنتج
+    // 3. التحقق مما إذا كان المستخدم الحالي هو مالك المنتج
     const isOwner = currentUserId && product.userId && product.userId._id.toString() === currentUserId.toString();
+
+    // تأكد من وجود مصفوفة viewLogs لمنع الأخطاء لو المنتج قديم
+    if (!product.viewLogs) product.viewLogs = [];
+
+    // 4. إذا لم يكن هو المالك، نطبق شروط الـ 30 دقيقة بناءً على الـ IP
+    if (!isOwner) {
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+      
+      // نبحث هل الـ IP ده موجود مسبقاً في سجلات الزيارات للمنتج؟
+      const viewerIndex = product.viewLogs.findIndex(v => v.ip === clientIp);
+
+      let shouldIncrement = false;
+
+      if (viewerIndex === -1) {
+        // لو أول مرة هذا الجهاز يزور المنتج، نسجل الـ IP ونزود الفيو
+        product.viewLogs.push({
+          ip: clientIp,
+          viewedAt: new Date()
+        });
+        shouldIncrement = true;
+      } else if (product.viewLogs[viewerIndex].viewedAt < thirtyMinutesAgo) {
+        // لو الجهاز زاره قبل كده بس عدى 30 دقيقة، نحدث وقته ونزود الفيو
+        product.viewLogs[viewerIndex].viewedAt = new Date();
+        shouldIncrement = true;
+      }
+
+      if (shouldIncrement) {
+        product = await ProductModel.findByIdAndUpdate(
+          id,
+          { 
+            $inc: { viewsCount: 1 },
+            $set: { viewLogs: product.viewLogs }
+          },
+          { new: true }
+        ).populate({
+          path: 'userId',
+          select: 'fullName reviews'
+        });
+      }
+    }
 
     // حساب متوسط التقييمات وعدد المراجعين للبائع
     let averageRating = 0;
@@ -355,6 +396,7 @@ const getProductById = async (req, res) => {
       isOwner // <-- إرسال القيمة للفرونت إند
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -589,38 +631,51 @@ const getAllCategories = async (req, res) => {
 
 const getSellerProfile = async (req, res) => {
   try {
-    const { userId } = req.params; // الحصول على الـ ID من الرابط
+    const { userId } = req.params;
 
-    // 1. جلب بيانات المستخدم
+    // 1. جلب بيانات المستخدم مع جلب مصفوفة التقييمات reviews وزيادة عدد المشاهدات
     const user = await User.findByIdAndUpdate(
       userId,
       { $inc: { views: 1 } },
       { new: true }
-    ).select('-password');
+    ).select('-password').populate({
+      path: 'reviews.reviewer',
+      select: 'fullName profileImage'
+    });
 
     if (!user) {
       return res.status(404).json({ message: "Seller not found" });
     }
 
-    // 2. جلب جميع منتجات المستخدم (لكن سنقوم بجلبها كلها أولاً لنحسب الإحصائيات بدقة، أو نجلب غير المخفية فقط)
-    // الأفضل جلب الكل لحساب الإحصائيات الإحيائية الصحيحة، ثم تصفية القائمة المعروضة
+    // 2. حساب متوسط التقييمات وعددها للبائع
+    let averageRating = 0;
+    let reviewsCount = 0;
+
+    if (user.reviews && user.reviews.length > 0) {
+      reviewsCount = user.reviews.length;
+      const totalRating = user.reviews.reduce((sum, rev) => sum + rev.rating, 0);
+      averageRating = (totalRating / reviewsCount).toFixed(1);
+    }
+
+    // 3. جلب منتجات المستخدم والإحصائيات الأخرى
     const allProducts = await ProductModel.find({ userId: userId }).sort({ createdAt: -1 });
 
-    // حساب الإحصائيات من كل المنتجات (حتى تظل أعداد المبيعات والإجمالي صحيحة)
     const totalListingsCount = allProducts.length;
     const soldProductsCount = allProducts.filter(p => p.status === 'Sold' || p.buyer !== null).length;
+    const boughtProductsCount = await ProductModel.countDocuments({ buyer: userId });
 
-    // تصفية المنتجات بحيث يتم إرجاع الغير مخفية فقط للـ listings
     const visibleProducts = allProducts.filter(p => !p.isHidden);
 
-    // 3. إرجاع البيانات في كائن واحد
+    // 4. إرسال البيانات ومعها sellerStats
     res.status(200).json({
       seller: user,
-      listings: visibleProducts, // المنتجات غير المخفية فقط للعرّض
+      listings: visibleProducts,
       stats: {
         totalListings: totalListingsCount,
-        soldListings: soldProductsCount
-      }
+        soldListings: soldProductsCount,
+        boughtListings: boughtProductsCount
+      },
+      sellerStats: { averageRating, reviewsCount } // <-- إضافة إحصائيات التقييمات هنا
     });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
@@ -676,14 +731,15 @@ const getReviews = async (req, res) => {
 
 const addReport = async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, productId } = req.body;
     const reportedUser = req.params.id; // المتبلغ عنه من البرامس
     const reporter = req.user.id; // اللي بلغ من الميدل وير
 
     const newReport = new Report({
       reporter,
       reportedUser,
-      content
+      content,
+      product: productId || null
     });
 
     await newReport.save();
@@ -1099,8 +1155,7 @@ const getRecommendedFavorites = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const { id } = req.params; // معرف المنتج المراد تعديله
-    const { title, description, price, category, condition, images, video, location } = req.body;
-
+    const { title, description, price, isNegotiable, category, condition, images, video, location } = req.body;
 
     // 2. البحث عن المنتج والتحقق من أنه يخص المستخدم الحالي
     const product = await ProductModel.findById(id);
@@ -1108,7 +1163,7 @@ const updateProduct = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    // 3. التحقق من الموقع الجغرافي (بما أنه إلزامي بناءً على كود الإضافة)
+    // 3. التحقق من الموقع الجغرافي (بما أنه إلزامي)
     if (location && (!location.latitude || !location.longitude)) {
       return res.status(400).json({ message: "Product location is required" });
     }
@@ -1118,11 +1173,16 @@ const updateProduct = async (req, res) => {
       title: title !== undefined ? title : product.title,
       description: description !== undefined ? description : product.description,
       price: price !== undefined ? price : product.price,
+      isNegotiable: isNegotiable !== undefined ? isNegotiable : product.isNegotiable, // <-- أضف هذا السطر
       category: category !== undefined ? category : product.category,
       condition: condition !== undefined ? condition : product.condition,
       images: images !== undefined ? images : product.images,
       video: video !== undefined ? video : product.video,
-      location: location !== undefined ? location : product.location
+      location: location !== undefined ? {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        address: location.address !== undefined ? location.address : product.location?.address // <-- حفظ اسم المكان النصي
+      } : product.location
     };
 
     const updatedProduct = await ProductModel.findByIdAndUpdate(
@@ -1131,9 +1191,9 @@ const updateProduct = async (req, res) => {
       { new: true, runValidators: true }
     ).populate('category');
 
-    res.status(200).json({ 
-      message: "Product updated successfully", 
-      product: updatedProduct 
+    res.status(200).json({
+      message: "Product updated successfully",
+      product: updatedProduct
     });
 
   } catch (error) {
@@ -1168,7 +1228,7 @@ const forgotPassword = async (req, res) => {
 
     // 4. 🔗 بناء رابط إعادة التعيين (يمكنك تغييره للرابط المحلي أو رابط الدومين حسب بيئة العمل)
     // لو شغال لوكال للفرونت اند (مثلاً بورت 3000 أو نفس بورت الباك اند):
-    const resetURL = `https://joinjadd.com/reset-password/${resetToken}`; 
+    const resetURL = `https://joinjadd.com/reset-password/${resetToken}`;
     // أو لو كان الرابط مباشر على الدومين: `https://jadd.om/reset-password/${resetToken}`
 
     // 5. 📧 إعداد محتوى الإيميل
@@ -1246,8 +1306,8 @@ const resetPassword = async (req, res) => {
 
     // 5. تعيين كلمة المرور الجديدة
     // ملاحظة: لو عندك pre-save hook في الـ User Model بيشفر الباسورد، سيب السطر زي ما هو:
-    user.password = newPassword; 
-    
+    user.password = newPassword;
+
     // لو مش معمول pre-save hook، يفضل تشفيرها هنا هكذا:
     // const salt = await bcrypt.genSalt(10);
     // user.password = await bcrypt.hash(newPassword, salt);

@@ -295,7 +295,9 @@ const getReports = async (req, res) => {
   try {
     const reports = await Report.find()
       .populate('reporter', 'fullName email phone')
-      .populate('reportedUser', 'fullName email phone');
+      .populate('reportedUser', 'fullName email phone')
+      .populate('product', 'title price images'); // <-- أضف هذا السطر لجلب بيانات المنتج المرتبط
+      
     res.status(200).json(reports);
   } catch (error) {
     res.status(500).json({ message: error.message });

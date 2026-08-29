@@ -3,18 +3,23 @@ const mongoose = require('mongoose');
 const productSchema = new mongoose.Schema({
     // إضافة index هنا لتسريع البحث عن منتجات بائع معين
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    title: { type: String, default: "" }, 
-    description: { type: String, default: "" }, 
-    price: { type: Number, default: 0 }, 
+    title: { type: String, default: "" },
+    description: { type: String, default: "" },
+    price: { type: Number, default: 0 },
     // إضافة index هنا لتسريع استعلامات تصفية المنتجات حسب التصنيف (Category)
-    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null, index: true }, 
-    condition: { type: String, default: "New" }, 
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null, index: true },
+    condition: { type: String, default: "New" },
     favoritesCount: { type: Number, default: 0 },
     viewsCount: { type: Number, default: 0 },
-    status: { 
-        type: String, 
-        enum: ['Available', 'Reserved', 'Sold'], 
-        default: 'Available' 
+    // أضف هذا الحقل داخل productSchema المتاحة لديك
+    viewLogs: [{
+        ip: { type: String },
+        viewedAt: { type: Date, default: Date.now }
+    }],
+    status: {
+        type: String,
+        enum: ['Available', 'Reserved', 'Sold'],
+        default: 'Available'
     },
     isFeatured: {
         type: Boolean,
@@ -26,13 +31,18 @@ const productSchema = new mongoose.Schema({
         default: false,
         index: true
     },
+    isNegotiable: {
+        type: Boolean,
+        default: false
+    },
     buyer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-    images: [{ type: String }], 
-    video: { type: String },    
+    images: [{ type: String }],
+    video: { type: String },
     location: {
-        latitude: { type: Number, required: true }, 
-        longitude: { type: Number, required: true }  
-    }    
+        address: { type: String, default: "" },
+        latitude: { type: Number, required: true },
+        longitude: { type: Number, required: true }
+    }
 }, { timestamps: true });
 
 // 1. الفهرس المركب الموجود مسبقاً (لتسريع فحص البائع والمشتري معاً)
