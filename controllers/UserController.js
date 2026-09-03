@@ -754,17 +754,25 @@ const getSellerDashboardData = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // جلب بيانات البائع (تشمل الـ views والـ reviews)
-    const user = await User.findById(userId).select('fullName views');
+    // جلب بيانات البائع مع تضمين حقل verificationStatus
+    const user = await User.findById(userId).select('fullName views verificationStatus');
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
     // جلب جميع منتجات هذا البائع
     const products = await ProductModel.find({ userId: userId }).populate('buyer');
 
-    // إرسال الداتا للفرونت إند ليقوم هو بالتقسيم والفلترة
+    // التحقق مما إذا كانت حالة التحقق تساوي 'verified'
+    const isVerified = user.verificationStatus === 'verified';
+
+    // إرسال الداتا للفرونت إند مع إضافة isVerified
     res.status(200).json({
       seller: {
         name: user.fullName,
-        views: user.views || 0
+        views: user.views || 0,
+        isVerified: isVerified // سترجع true إذا كان verified وإلا false
       },
       products: products
     });
@@ -1330,6 +1338,23 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// جلب العروض التي قدمها المستخدم كمشتري
+const getMySentOffers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // جلب العروض الخاصة بالمشتري مع جلب بيانات المنتج والبائع المرتبطين بها
+    const sentOffers = await Offer.find({ buyerId: userId })
+      .populate('productId', 'title price images status')
+      .populate('sellerId', 'fullName name')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(sentOffers);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 module.exports = {
   getUploadUrl,
   addProduct,
@@ -1371,5 +1396,6 @@ module.exports = {
   getRecommendedFavorites,
   updateProduct,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  getMySentOffers
 };

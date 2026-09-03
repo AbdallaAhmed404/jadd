@@ -7,7 +7,7 @@ const { toggleFavorite, getFavorites, isVerifiedSeller, getUploadUrl, register, 
     submitIdentity,getAllCategories,updateProfile,getSellerProfile,addReview, getReviews,addReport,getSellerDashboardData,
     toggleProductStatus,deleteProduct,createOffer, getSellerOffers,updateOfferStatus,updateUserLocation,getUserNotifications,
     markAsRead,markAllAsRead,checkProductBuyerAndUser,toggleHiddenStatus,deleteMessage,getRecommendedFavorites,updateProduct,
-    forgotPassword,resetPassword } = require('../controllers/UserController')
+    forgotPassword,resetPassword,getMySentOffers } = require('../controllers/UserController')
 
 UserRouter.post('/forgot-password', forgotPassword);
 UserRouter.post('/reset-password/:token', resetPassword);
@@ -50,7 +50,7 @@ UserRouter.get('/checkproduct/:id', authorized, checkProductBuyerAndUser);
 UserRouter.patch('/toggle-hidden/:productId', authorized, toggleHiddenStatus);
 UserRouter.delete('/deleteMessage/:messageId', authorized, deleteMessage);
 UserRouter.put('/updateProduct/:id', updateProduct);
-
+UserRouter.get('/my-sent-offers', authorized, getMySentOffers);
 module.exports = UserRouter;
 
 
