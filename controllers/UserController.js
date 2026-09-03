@@ -62,12 +62,16 @@ const transporter = nodemailer.createTransport({
 
 const register = async (req, res) => {
   try {
-    const { fullName, email, password, phone } = req.body;
+    const { fullName, email, password, confirmPassword, phone } = req.body;
 
     // 1. تحقق هل المستخدم موجود مسبقاً
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "هذا البريد الإلكتروني مسجل بالفعل" });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: "كلمة المرور غير متطابقة مع تأكيد كلمة المرور" });
     }
 
     // 2. توليد الكود
@@ -170,18 +174,70 @@ const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
-    // 2. Check if the account is verified
-    if (!user.isVerified) {
-      return res.status(403).json({
-        message: "Account not verified. Please check your email for the verification code.",
-        needsVerification: true
-      });
-    }
-
-    // 3. Compare passwords
+    // 3. Compare passwords first (قبل التحقق من التفعيل أو أثناءه حسب رغبتك، الأفضل التحقق منها لتأمان الحساب)
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid email or password." });
+    }
+
+    // 2. Check if the account is verified
+    if (!user.isVerified) {
+      // توليد كود OTP جديد وتحديثه للمستخدم
+      const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+      user.otp = otpCode;
+      await user.save();
+
+      // إرسال الإيميل بكود التحقق الجديد
+      await transporter.sendMail({
+        from: '"JADD Support" <jadd.webdev@gmail.com>',
+        to: email,
+        subject: "إعادة إرسال رمز تفعيل حسابك في JADD",
+        html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    .jadd-font { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important; }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f8f9fa; -webkit-font-smoothing: antialiased;">
+  <div class="jadd-font" style="background-color: #f8f9fa; padding: 40px 20px;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #eeeeee;">
+      <div style="padding: 50px 20px 30px 20px; text-align: center; background-color: #1F1547;">
+        <h1 style="color: #ffffff; font-size: 24px; letter-spacing: 0.1em; text-transform: uppercase; margin: 0; font-weight: 800;">
+          JADD<span style="color: #D6C88A;">.</span>
+        </h1>
+        <div style="height: 1px; width: 30px; background-color: #D6C88A; margin: 15px auto 0 auto;"></div>
+      </div>
+      <div style="padding: 40px;">
+        <h2 style="color: #1F1547; font-size: 18px; margin-bottom: 25px; font-weight: 700; text-align: center;">
+          Account Verification
+        </h2>
+        <div style="margin-bottom: 30px; font-size: 14px; color: #666666; line-height: 1.8; text-align: center;">
+          <p>أهلاً بك <strong>${user.fullName}</strong>،</p>
+          <p>لقد طلبت تسجيل الدخول لحساب غير مفعل. يرجى استخدام رمز التحقق الجديد أدناه لتفعيل حسابك:</p>
+        </div>
+        <div style="background-color: #f8f9fa; border-radius: 12px; padding: 25px; text-align: center; border: 1px solid #ececec;">
+          <span style="font-size: 32px; font-weight: 900; color: #1F1547; letter-spacing: 5px;">${otpCode}</span>
+        </div>
+        <div style="margin-top: 40px; text-align: center; color: #999999; font-size: 12px;">
+          <p>هذا الرمز صالح لفترة محدودة.</p>
+        </div>
+      </div>
+      <div style="background-color: #f8f9fa; padding: 30px 40px; text-align: center; color: #999999; font-size: 11px;">
+        <p style="margin: 0; font-weight: bold; color: #1F1547;">JADD PREMIUM SERVICES</p>
+        <p style="margin: 10px 0 0 0;">Oman's Specialized Network // Muscat</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`
+      });
+
+      return res.status(403).json({
+        message: "Account not verified. A new verification code has been sent to your email.",
+        needsVerification: true
+      });
     }
 
     // 4. Generate token
@@ -615,7 +671,17 @@ const submitIdentity = async (req, res) => {
       verificationStatus: 'pending'
     });
 
-    res.status(201).json({ message: "Identity submitted and status updated to pending" });
+    // 4. إرسال إيميل إشعار بوجود طلب جديد
+    const mailOptions = {
+      from: '"JADD Platform" <jadd.webdev@gmail.com>',
+      to: 'jadd.webdev@gmail.com', // الإيميل الذي ستستقبل عليه الإشعارات
+      subject: 'طلب التحقق من الهوية جديد',
+      text: `مرحباً، تم استلام طلب تحقيق هوية جديد.\nالرقم القومي: ${nationalId}\nيرجى مراجعة الطلب من لوحة التحكم.`
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.status(201).json({ message: "Identity submitted, status updated to pending, and notification email sent" });
   } catch (error) {
     console.error("Submission error:", error);
     res.status(500).json({ message: "Submission failed" });

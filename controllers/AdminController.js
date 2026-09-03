@@ -1,4 +1,4 @@
-const Product= require("../models/ProductModel")
+const Product = require("../models/ProductModel")
 const Admin = require('../models/AdminModel');
 const bcrypt = require('bcryptjs');
 const customError = require('../customError');
@@ -12,21 +12,21 @@ const Conversation = require('../models/ConversationModel');
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // أو الخدمة التي تستخدمها
-  auth: {
-    user: "jadd.webdev@gmail.com",
-    pass: "tmrp qjgc uwxz lees",
-  },
+    service: 'gmail', // أو الخدمة التي تستخدمها
+    auth: {
+        user: "jadd.webdev@gmail.com",
+        pass: "tmrp qjgc uwxz lees",
+    },
 });
 
 const updateVendorStatus = async (req, res) => {
     try {
         const userId = req.params.id; // هذا هو الـ userId القادم من الفرونت
-        const { status, rejectionReason } = req.body; 
+        const { status, rejectionReason } = req.body;
 
         // 1. تحديث حالة التحقق في جدول الـ User
         const user = await User.findByIdAndUpdate(
-            userId, 
+            userId,
             { verificationStatus: status },
             { new: true }
         );
@@ -47,22 +47,38 @@ const updateVendorStatus = async (req, res) => {
             { new: true }
         );
 
-        // 3. إذا كانت الحالة 'unverified' (رفض) وتم كتابة سبب، نقوم بإرسال إيميل
-        if (status === 'unverified' && rejectionReason && user.email) {
-            const mailOptions = {
-                from: process.env.EMAIL_USER,
-                to: user.email,
-                subject: 'Vendor Account Verification Rejected',
-                text: `Hello ${user.fullName || 'Vendor'},\n\nUnfortunately, your verification request has been rejected.\n\nReason: ${rejectionReason}\n\nPlease update your information and try again.\n\nBest Regards,\nJadd Team`
-            };
+        // 3. إرسال الإيميل بناءً على الحالة (رفض أو قبول)
+        if (user.email) {
+            let mailOptions = null;
 
-            await transporter.sendMail(mailOptions);
+            if (status === 'unverified' && rejectionReason) {
+                // إيميل الرفض
+                mailOptions = {
+                    from: process.env.EMAIL_USER,
+                    to: user.email,
+                    subject: 'Vendor Account Verification Rejected',
+                    text: `Hello ${user.fullName || 'Vendor'},\n\nUnfortunately, your verification request has been rejected.\n\nReason: ${rejectionReason}\n\nPlease update your information and try again.\n\nBest Regards,\nJadd Team`
+                };
+            } else if (status === 'verified') {
+                // إيميل القبول
+                mailOptions = {
+                    from: process.env.EMAIL_USER,
+                    to: user.email,
+                    subject: 'Congratulations! Vendor Account Verified',
+                    text: `Hello ${user.fullName || 'Vendor'},\n\nGreat news! Your identity verification request has been approved and your vendor account is now verified.\n\nYou can now start using all platform features.\n\nBest Regards,\nJadd Team`
+                };
+            }
+
+            // لو الـ mailOptions تم تجهيزها، قم بالإرسال
+            if (mailOptions) {
+                await transporter.sendMail(mailOptions);
+            }
         }
 
-        res.status(200).json({ 
-            success: true, 
-            message: "Status updated and identity saved successfully", 
-            data: updatedIdentity 
+        res.status(200).json({
+            success: true,
+            message: "Status updated and identity saved successfully",
+            data: updatedIdentity
         });
 
     } catch (err) {
@@ -84,8 +100,8 @@ const adminLogin = async (req, res, next) => {
 
         // 2. التحقق إذا كان الحساب نشطاً
         if (admin.isActive === false) {
-            return res.status(403).json({ 
-                message: 'Your account is deactivated. Please contact the super admin.' 
+            return res.status(403).json({
+                message: 'Your account is deactivated. Please contact the super admin.'
             });
         }
 
@@ -98,14 +114,14 @@ const adminLogin = async (req, res, next) => {
 
         // 4. إنشاء التوكن (JWT)
         const token = jwt.sign(
-            { id: admin._id, role: admin.role }, 
+            { id: admin._id, role: admin.role },
             process.env.JWT_SECRET || 'key',
             { expiresIn: '1d' }
         );
 
         // 5. إرسال الاستجابة بنجاح
-        res.status(200).json({ 
-            message: 'Admin logged in successfully', 
+        res.status(200).json({
+            message: 'Admin logged in successfully',
             token,
             admin: {
                 email: admin.email,
@@ -152,10 +168,10 @@ const getAllProducts = async (req, res) => {
     try {
         // جلب المنتجات مع بيانات المستخدم ومع بيانات الكاتيجوري
         const products = await Product.find({})
-            .populate('userId', 'fullName email') 
+            .populate('userId', 'fullName email')
             .populate('category') // <-- أضف هذه السطر
             .sort({ createdAt: -1 });
-        
+
         res.status(200).json({ success: true, data: products });
     } catch (err) {
         res.status(500).json({ message: "Failed to fetch products" });
@@ -166,32 +182,32 @@ const getAllProducts = async (req, res) => {
 const deleteProduct = async (req, res) => {
     try {
         const productId = req.params.id || req.params.productId;
-        
+
         const product = await Product.findById(productId);
         if (!product) {
-          return res.status(404).json({ message: "Product not found" });
+            return res.status(404).json({ message: "Product not found" });
         }
-    
+
         // 1. حذف أي محادثات مرتبطة بهذا المنتج
         await Conversation.deleteMany({ productId: productId });
-    
+
         // 2. حذف أي عروض (Offers) مرتبطة بهذا المنتج
         await Offer.deleteMany({ productId: productId });
-    
+
         // 3. حذف المنتج نفسه
         await Product.findByIdAndDelete(productId);
-    
+
         res.status(200).json({ message: "Product and its related conversations and offers deleted successfully" });
-      } catch (error) {
+    } catch (error) {
         res.status(500).json({ message: "Error deleting product", error: error.message });
-      }
+    }
 };
 
 // IdentityController.js
 const getAllIdentities = async (req, res) => {
     try {
         const identities = await Identity.find({})
-            .populate('userId', 'fullName email phone verificationStatus'); 
+            .populate('userId', 'fullName email phone verificationStatus');
         res.status(200).json({ success: true, data: identities });
     } catch (err) {
         res.status(500).json({ message: "Failed" });
@@ -216,7 +232,7 @@ const updateUserVerification = async (req, res) => {
 
         const updatedUser = await User.findByIdAndUpdate(
             userId,
-            { 
+            {
                 verificationStatus: status,
             },
             { new: true }
@@ -244,8 +260,8 @@ const addCategory = async (req, res) => {
 
         const newCategory = await Category.create({ name });
         res.status(201).json({ success: true, data: newCategory });
-    } catch (err) { 
-        res.status(500).json({ success: false, message: "Failed to add", error: err.message }); 
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Failed to add", error: err.message });
     }
 };
 
@@ -258,12 +274,12 @@ const deleteCategory = async (req, res) => {
 
 const addSubCategory = async (req, res) => {
     try {
-        const { categoryId, subCategoryName } = req.body; 
+        const { categoryId, subCategoryName } = req.body;
         // المتوقع في subCategoryName: { ar: "هواتف", en: "Mobiles" }
 
         const category = await Category.findByIdAndUpdate(
             categoryId,
-            { $push: { subCategories: subCategoryName } }, 
+            { $push: { subCategories: subCategoryName } },
             { new: true }
         );
 
@@ -292,94 +308,94 @@ const removeSubCategory = async (req, res) => {
 };
 
 const getReports = async (req, res) => {
-  try {
-    const reports = await Report.find()
-      .populate('reporter', 'fullName email phone')
-      .populate('reportedUser', 'fullName email phone')
-      .populate('product', 'title price images'); // <-- أضف هذا السطر لجلب بيانات المنتج المرتبط
-      
-    res.status(200).json(reports);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    try {
+        const reports = await Report.find()
+            .populate('reporter', 'fullName email phone')
+            .populate('reportedUser', 'fullName email phone')
+            .populate('product', 'title price images'); // <-- أضف هذا السطر لجلب بيانات المنتج المرتبط
+
+        res.status(200).json(reports);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 // حذف تقرير
 const deleteReport = async (req, res) => {
-  try {
-    await Report.findByIdAndDelete(req.params.id);
-    res.status(200).json({ message: "Report deleted successfully" });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    try {
+        await Report.findByIdAndDelete(req.params.id);
+        res.status(200).json({ message: "Report deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 const toggleFeaturedProduct = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+    try {
+        const { id } = req.params;
 
-    // البحث عن المنتج للتأكد من وجوده وجلب حالته الحالية
-    const product = await Product.findById(id);
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+        // البحث عن المنتج للتأكد من وجوده وجلب حالته الحالية
+        const product = await Product.findById(id);
+        if (!product) {
+            return res.status(404).json({ message: "Product not found" });
+        }
+
+        // عكس قيمة isFeatured الحالية
+        product.isFeatured = !product.isFeatured;
+        await product.save();
+
+        res.status(200).json({
+            message: `Product is now ${product.isFeatured ? "Featured" : "Unfeatured"}`,
+            isFeatured: product.isFeatured,
+            product
+        });
+    } catch (err) {
+        console.error("Error toggling product featured status:", err);
+        return next(customError({
+            statusCode: 500,
+            message: "Failed to update product featured status"
+        }));
     }
-
-    // عكس قيمة isFeatured الحالية
-    product.isFeatured = !product.isFeatured;
-    await product.save();
-
-    res.status(200).json({
-      message: `Product is now ${product.isFeatured ? "Featured" : "Unfeatured"}`,
-      isFeatured: product.isFeatured,
-      product
-    });
-  } catch (err) {
-    console.error("Error toggling product featured status:", err);
-    return next(customError({
-      statusCode: 500,
-      message: "Failed to update product featured status"
-    }));
-  }
 };
 
 // إعادة ترتيب الكاتيجوري
 const reorderCategories = async (req, res) => {
-  try {
-    const { orderedIds } = req.body; // مصفوفة الـ IDs بالترتيب الجديد
+    try {
+        const { orderedIds } = req.body; // مصفوفة الـ IDs بالترتيب الجديد
 
-    if (!orderedIds || !Array.isArray(orderedIds)) {
-      return res.status(400).json({ success: false, message: "Invalid data format" });
+        if (!orderedIds || !Array.isArray(orderedIds)) {
+            return res.status(400).json({ success: false, message: "Invalid data format" });
+        }
+
+        // تحديث الترتيب لكل كاتيجوري بناءً على الـ index الجديد
+        const updatePromises = orderedIds.map((id, index) => {
+            return Category.findByIdAndUpdate(id, { order: index });
+        });
+
+        await Promise.all(updatePromises);
+
+        res.status(200).json({
+            success: true,
+            message: "Categories reordered successfully"
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
     }
-
-    // تحديث الترتيب لكل كاتيجوري بناءً على الـ index الجديد
-    const updatePromises = orderedIds.map((id, index) => {
-      return Category.findByIdAndUpdate(id, { order: index });
-    });
-
-    await Promise.all(updatePromises);
-
-    res.status(200).json({ 
-      success: true, 
-      message: "Categories reordered successfully" 
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
 };
 
 module.exports = {
     adminLogin,
-    getAllUsers, 
+    getAllUsers,
     deleteUser,
     getAllProducts,
     deleteProduct,
-    getAllIdentities, 
+    getAllIdentities,
     deleteIdentity,
     updateUserVerification,
     getAllCategories,
     addCategory,
     deleteCategory,
-    getReports, 
+    getReports,
     deleteReport,
     addSubCategory,
     removeSubCategory,
